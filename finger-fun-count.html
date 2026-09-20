@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Finger Fun! Count to 10</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<style>
+  :root{ --pink:#ff3d81; --cyan:#31e1f7; --yellow:#ffd23f; --green:#2ee6a6; --violet:#8b5cf6; --orange:#ff9f1c; --ink:#0b0620; }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;overflow:hidden;background:#1b0a4a;color:#fff;
+    font-family:'Baloo 2','Comic Sans MS','Segoe UI',system-ui,sans-serif;}
+
+  /* ---------- layers ---------- */
+  #bg{position:fixed;inset:0;z-index:0;
+    background:linear-gradient(135deg,#1b0a4a,#3a0ca3,#7209b7,#f72585,#3a0ca3);
+    background-size:400% 400%;animation:bgmove 16s ease infinite;}
+  @keyframes bgmove{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+  #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:fill;transform:scaleX(-1);
+    opacity:.42;transition:opacity .3s;z-index:1;}
+  #floaters{position:fixed;inset:0;z-index:2;pointer-events:none;overflow:hidden;}
+  #floaters span{position:absolute;bottom:-70px;font-size:clamp(28px,4.2vw,60px);opacity:.55;
+    animation:floatUp linear infinite;}
+  @keyframes floatUp{to{transform:translateY(-125vh) rotate(360deg);}}
+  #gl,#ov{position:fixed;inset:0;width:100%;height:100%;}
+  #gl{z-index:3;} #ov{z-index:4;pointer-events:none;}
+
+  /* ---------- HUD ---------- */
+  #title{position:fixed;z-index:10;left:18px;top:calc(12px + env(safe-area-inset-top,0px));
+    font-size:clamp(28px,4.4vw,64px);font-weight:800;line-height:1;pointer-events:none;
+    filter:drop-shadow(0 4px 0 rgba(0,0,0,.35));}
+  #title .grad{background:linear-gradient(90deg,#ff3d81,#ff9f1c,#ffd23f,#2ee6a6,#31e1f7,#c084fc);
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  #title small{display:block;font-size:.42em;font-weight:700;color:#fff;opacity:.9;margin-top:2px;}
+  #tools{position:fixed;z-index:10;right:16px;top:calc(12px + env(safe-area-inset-top,0px));display:flex;gap:10px;}
+  .tool{border:none;border-radius:50%;width:clamp(46px,5vw,68px);height:clamp(46px,5vw,68px);
+    font-size:clamp(22px,2.6vw,34px);cursor:pointer;background:var(--yellow);color:var(--ink);
+    box-shadow:0 5px 0 rgba(0,0,0,.3);}
+  .tool:active{transform:translateY(4px);box-shadow:none;}
+  .tool.off{background:#888;opacity:.8;}
+
+  #bottom{position:fixed;z-index:10;left:0;right:0;bottom:calc(12px + env(safe-area-inset-bottom,0px));
+    display:flex;flex-direction:column;align-items:center;gap:12px;padding:0 12px;pointer-events:none;}
+  #dots{display:flex;gap:clamp(6px,1vw,14px);flex-wrap:wrap;justify-content:center;}
+  .dot{width:clamp(34px,5.6vw,76px);height:clamp(34px,5.6vw,76px);border-radius:50%;display:grid;place-items:center;
+    font-weight:800;font-size:clamp(16px,2.7vw,38px);color:rgba(255,255,255,.75);
+    background:rgba(255,255,255,.14);border:3px solid rgba(255,255,255,.35);transition:background .2s,color .2s;}
+  .dot.on{background:var(--dc);color:var(--ink);border-color:#fff;box-shadow:0 0 22px var(--dc);}
+  .dot.pop{animation:pop .4s;}
+  @keyframes pop{0%{transform:scale(.3)}60%{transform:scale(1.35)}100%{transform:scale(1)}}
+
+  /* ---------- start screen ---------- */
+  #start{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:clamp(12px,2.2vh,26px);text-align:center;padding:24px;
+    background:radial-gradient(circle at 50% 35%,#5b21b6,#1b0a4a 70%);transition:opacity .5s,visibility .5s;}
+  #start.hide{opacity:0;visibility:hidden;}
+  #start h1{margin:0;font-size:clamp(52px,9vw,130px);line-height:1;font-weight:800;
+    background:linear-gradient(90deg,#ff3d81,#ff9f1c,#ffd23f,#2ee6a6,#31e1f7,#c084fc,#ff3d81);background-size:200% 100%;
+    -webkit-background-clip:text;background-clip:text;color:transparent;animation:shine 4s linear infinite;
+    filter:drop-shadow(0 6px 0 rgba(0,0,0,.35));}
+  @keyframes shine{to{background-position:200% 0;}}
+  #start .wave{font-size:clamp(60px,10vw,140px);animation:wave 1.4s ease-in-out infinite;transform-origin:70% 80%;}
+  @keyframes wave{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(18deg)}}
+  #steps{display:flex;gap:clamp(10px,2vw,28px);flex-wrap:wrap;justify-content:center;}
+  .step{background:rgba(255,255,255,.12);border:3px solid rgba(255,255,255,.3);border-radius:22px;
+    padding:10px 20px;font-size:clamp(18px,2.2vw,32px);font-weight:700;}
+  #startBtn{font-family:inherit;font-size:clamp(26px,3.4vw,50px);font-weight:800;color:var(--ink);cursor:pointer;
+    background:linear-gradient(90deg,var(--green),var(--cyan));border:none;border-radius:999px;
+    padding:14px clamp(34px,5vw,80px);box-shadow:0 8px 0 rgba(0,0,0,.35);animation:bounce 1.3s ease-in-out infinite;}
+  #startBtn:active{transform:translateY(6px);box-shadow:none;animation:none;}
+  #startBtn:disabled{opacity:.7;animation:none;}
+  @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+  #startMsg{min-height:1.4em;font-size:clamp(16px,1.9vw,26px);color:var(--yellow);font-weight:700;}
+</style>
+</head>
+<body>
+
+<div id="bg"></div>
+<video id="cam" autoplay playsinline muted></video>
+<div id="floaters"></div>
+<canvas id="gl"></canvas>
+<canvas id="ov"></canvas>
+
+<div id="title"><span class="grad">Finger Fun!</span><small>Count to 10 with your hands</small></div>
+<div id="tools">
+  <button class="tool" id="btnSound" title="Sound on/off">🔊</button>
+  <button class="tool" id="btnCam" title="Camera background on/off">📷</button>
+  <button class="tool" id="btnFull" title="Full screen">⛶</button>
+</div>
+
+<div id="bottom">
+  <div id="dots"></div>
+</div>
+
+<div id="start">
+  <div class="wave">🖐️</div>
+  <h1>Finger Fun!</h1>
+  <div id="steps">
+    <div class="step">📷 Allow camera</div>
+    <div class="step">🙌 Show your hands</div>
+    <div class="step">🔢 Count up to 10!</div>
+  </div>
+  <button id="startBtn">▶ Let's Play!</button>
+  <div id="startMsg">Tip: make a fist ✊ to punch the stars!</div>
+</div>
+
+<script>
+'use strict';
+const FONT = '"Baloo 2","Arial Rounded MT Bold","Segoe UI",Arial,sans-serif';
+const $ = id => document.getElementById(id);
+
+/* ================= DATA ================= */
+const NUM = [
+  {w:'ZERO',  hi:'शून्य (Shunya)', e:'🥊', fact:'Zero means none. Make a fist and punch the stars!'},
+  {w:'ONE',   hi:'एक (Ek)',       e:'☀️', fact:'One bright sun in the sky'},
+  {w:'TWO',   hi:'दो (Do)',       e:'👀', fact:'Two eyes to see the world'},
+  {w:'THREE', hi:'तीन (Teen)',    e:'🐷', fact:'Three little pigs'},
+  {w:'FOUR',  hi:'चार (Chaar)',   e:'🚗', fact:'Four wheels on a car'},
+  {w:'FIVE',  hi:'पाँच (Paanch)', e:'✋', fact:'Five fingers on one hand'},
+  {w:'SIX',   hi:'छह (Chhe)',     e:'🐜', fact:'Six legs on an ant'},
+  {w:'SEVEN', hi:'सात (Saat)',    e:'🌈', fact:'Seven colours in a rainbow'},
+  {w:'EIGHT', hi:'आठ (Aath)',     e:'🕷️', fact:'Eight legs on a spider'},
+  {w:'NINE',  hi:'नौ (Nau)',      e:'🐱', fact:'Nine lives of a cat'},
+  {w:'TEN',   hi:'दस (Das)',      e:'🎉', fact:'Ten fingers. Hooray, you did it!'}
+];
+const FCOL = ['#ff4d6d','#ff9f1c','#ffd60a','#2ee6a6','#4cc9f0'];   // thumb, index, middle, ring, pinky
+const CHAINS = [[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+const CONFETTI_COLORS = ['#ff4d6d','#ff9f1c','#ffd60a','#2ee6a6','#4cc9f0','#c084fc','#ffffff'];
+
+/* ================= STATE ================= */
+let W = innerWidth, H = innerHeight;
+let soundOn = true;
+let tracked = [];           // hands seen this frame: {lm, up[5], n}
+let shown = -2;             // number currently shown (-1 = no hands)
+let cand = -3, candFrames = 0;
+let baseHue = 0, hueMul = 3.4;
+let lastSay = 0;
+let fistWorld = [];         // fist positions in 3D-world coords (particles run away from them)
+let AR = 16/9;              // video aspect ratio
+
+/* ================= THREE.JS PARTICLES ================= */
+const N = 14000;
+const renderer = new THREE.WebGLRenderer({canvas:$('gl'), antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, W/H, 0.1, 100);
+camera.position.z = 8;
+let visW = 1, visH = 1;
+
+const pos = new Float32Array(N*3), vel = new Float32Array(N*3),
+      col = new Float32Array(N*3), tgt = new Float32Array(N*3), hueOff = new Float32Array(N);
+for(let i=0;i<N;i++){
+  pos[i*3]   = (Math.random()-.5)*20;
+  pos[i*3+1] = (Math.random()-.5)*12;
+  pos[i*3+2] = (Math.random()-.5)*6;
+}
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+geo.setAttribute('color',    new THREE.BufferAttribute(col,3));
+
+function makeSprite(){
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32,32,0,32,32,32);
+  gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.45,'rgba(255,255,255,.85)'); gr.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+}
+const mat = new THREE.PointsMaterial({
+  size:0.085, map:makeSprite(), vertexColors:true, transparent:true, opacity:.95,
+  depthWrite:false, blending:THREE.AdditiveBlending
+});
+scene.add(new THREE.Points(geo, mat));
+
+// pre-computed rainbow palette (360 hues)
+const PAL = new Float32Array(360*3);
+(function(){
+  const s=.95, l=.6, a=s*Math.min(l,1-l);
+  for(let h=0;h<360;h++){
+    const f = n => { const k=(n+h/30)%12; return l - a*Math.max(-1, Math.min(k-3, 9-k, 1)); };
+    PAL[h*3]=f(0); PAL[h*3+1]=f(8); PAL[h*3+2]=f(4);
+  }
+})();
+
+// text -> particle targets
+const tc = document.createElement('canvas'); tc.width = 1280; tc.height = 720;
+const tctx = tc.getContext('2d', {willReadFrequently:true});
+
+function setTargetFor(n){                    // n = -1 -> idle message
+  const c = tctx;
+  c.clearRect(0,0,1280,720);
+  c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  if(n < 0){
+    c.font = `800 185px ${FONT}`;
+    c.fillText('SHOW YOUR', 640, 250);
+    c.fillText('HANDS!', 640, 470);
+    hueMul = 3.4;
+  } else {
+    const big = String(n);
+    c.font = `800 ${big.length>1 ? 440 : 520}px ${FONT}`;
+    c.fillText(big, 640, 265);
+    c.font = `800 165px ${FONT}`;
+    c.fillText(NUM[n].w, 640, 600);
+    hueMul = 1;
+  }
+  const data = c.getImageData(0,0,1280,720).data;
+  const pts = [], step = 4;
+  for(let y=0;y<720;y+=step) for(let x=0;x<1280;x+=step)
+    if(data[(y*1280+x)*4+3] > 128) pts.push(x,y);
+  const count = pts.length/2;
+  const sc = Math.min(visW*.9/1280, visH*.70/720);     // fit the screen
+  const yShift = visH*.08;                              // keep clear of the bottom bar
+  for(let i=0;i<N;i++){
+    const i3 = i*3;
+    if(count === 0){ tgt[i3]=(Math.random()-.5)*10; tgt[i3+1]=(Math.random()-.5)*6; tgt[i3+2]=0; hueOff[i]=Math.random()*360; continue; }
+    const k = Math.floor(i*count/N)*2;
+    const px = pts[k] + (Math.random()-.5)*step, py = pts[k+1] + (Math.random()-.5)*step;
+    tgt[i3]   = (px-640)*sc;
+    tgt[i3+1] = -(py-360)*sc + yShift;
+    tgt[i3+2] = (Math.random()-.5)*.3;
+    hueOff[i] = (px/1280)*100 + (py/720)*40;
+  }
+}
+function rebuild(){ setTargetFor(shown < 0 ? -1 : shown); }
+
+function stepParticles(t){
+  const fw = fistWorld, R = 2.4, R2 = R*R;
+  for(let i=0;i<N;i++){
+    const i3=i*3;
+    let x=pos[i3], y=pos[i3+1], z=pos[i3+2];
+    let vx=vel[i3], vy=vel[i3+1], vz=vel[i3+2];
+    // spring toward the target shape
+    vx += (tgt[i3]-x)*.05;  vy += (tgt[i3+1]-y)*.05;  vz += (tgt[i3+2]-z)*.05;
+    // fists punch particles away
+    for(let f=0; f<fw.length; f++){
+      const dx=x-fw[f].x, dy=y-fw[f].y, d2=dx*dx+dy*dy;
+      if(d2 < R2){
+        const d = Math.sqrt(d2)+.001, force = 1-d/R;
+        vx += dx/d*force*.55; vy += dy/d*force*.55; vz += (Math.random()-.5)*force*.4;
+      }
+    }
+    vx*=.78; vy*=.78; vz*=.78;
+    x += vx + Math.sin(t*2+i)*.004;
+    y += vy + Math.cos(t*2+i*1.3)*.004;
+    z += vz;
+    pos[i3]=x; pos[i3+1]=y; pos[i3+2]=z;
+    vel[i3]=vx; vel[i3+1]=vy; vel[i3+2]=vz;
+    // colour: rainbow, sparkling white when moving fast
+    let h = ((baseHue + hueOff[i]*hueMul + t*45) % 360 + 360) % 360 | 0;
+    const white = Math.min(1, (Math.abs(vx)+Math.abs(vy))*4);
+    col[i3]   = PAL[h*3]  *(1-white)+white;
+    col[i3+1] = PAL[h*3+1]*(1-white)+white;
+    col[i3+2] = PAL[h*3+2]*(1-white)+white;
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.attributes.color.needsUpdate = true;
+}
+
+/* ================= FINGER COUNTING ================= */
+function d3(a,b){ return Math.hypot((a.x-b.x)*AR, a.y-b.y, (a.z-b.z)*AR); }
+
+// works for any hand rotation: compares distances, not "up/down"
+function fingersUp(lm){
+  const up = [false,false,false,false,false];
+  const wrist = lm[0], size = d3(lm[0], lm[9]) || .1;
+  const tips=[8,12,16,20], pips=[6,10,14,18];
+  for(let i=0;i<4;i++) up[i+1] = d3(lm[tips[i]], wrist) > d3(lm[pips[i]], wrist)*1.08;
+  // thumb: tip must be farther from the pinky base than the thumb joint, and not tucked in
+  up[0] = d3(lm[4], lm[17]) > d3(lm[3], lm[17])*1.04 && d3(lm[4], lm[5])/size > .45;
+  return up;
+}
+
+function onResults(res){
+  const list = res.multiHandLandmarks || [];
+  tracked = list.map(lm => { const up = fingersUp(lm); return {lm, up, n: up.filter(Boolean).length}; });
+  fistWorld = tracked.filter(h => h.n === 0).map(h => ({
+    x:(0.5-h.lm[9].x)*visW, y:(0.5-h.lm[9].y)*visH
+  }));
+  const total = Math.min(10, tracked.reduce((s,h)=>s+h.n, 0));
+  feed(tracked.length ? total : -1);
+}
+
+// a number must stay the same for a few frames before we announce it (no flicker)
+function feed(n){
+  if(n === cand) candFrames++; else { cand = n; candFrames = 1; }
+  const need = n < 0 ? 12 : 4;
+  if(candFrames >= need && n !== shown) onStable(n);
+}
+
+/* ================= UI ================= */
+const dotsEl = $('dots');
+for(let i=1;i<=10;i++){
+  const d = document.createElement('div');
+  d.className = 'dot'; d.textContent = i;
+  d.style.setProperty('--dc', `hsl(${(i-1)*36} 95% 60%)`);
+  dotsEl.appendChild(d);
+}
+function setDots(n){
+  [...dotsEl.children].forEach((d,i)=>{
+    const on = i < n;
+    if(on && !d.classList.contains('on')){ d.classList.remove('pop'); void d.offsetWidth; d.classList.add('pop'); }
+    d.classList.toggle('on', on);
+  });
+}
+// floating school stuff in the background
+['⭐','🎈','🌈','🚀','🍎','🎨','✏️','📚','🦋','🌟','🎵','🐝','🧩','🍭'].forEach((e,i)=>{
+  const s = document.createElement('span');
+  s.textContent = e;
+  s.style.left = (i*7.3 % 96) + '%';
+  s.style.animationDuration = (14 + (i*3.7 % 14)) + 's';
+  s.style.animationDelay = (-(i*2.9 % 20)) + 's';
+  $('floaters').appendChild(s);
+});
+
+/* ================= SOUND ================= */
+let audioCtx = null;
+const NOTES = [196, 261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25, 783.99, 880];
+function tone(f, t0=0, dur=.3, type='triangle', vol=.25){
+  if(!audioCtx) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  const t = audioCtx.currentTime + t0;
+  o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t+.02);
+  g.gain.exponentialRampToValueAtTime(.0001, t+dur);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(t); o.stop(t+dur+.05);
+}
+function playCount(n){
+  if(!soundOn) return;
+  if(n === 10) NOTES.slice(1).forEach((f,i)=>tone(f, i*.07, .32));
+  else { tone(NOTES[n], 0, .35); tone(NOTES[n]*2, .08, .25, 'sine', .12); }
+}
+function say(text){
+  if(!soundOn || !('speechSynthesis' in window)) return;
+  const now = performance.now();
+  if(now - lastSay < 350) return;
+  lastSay = now;
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US'; u.rate = .9; u.pitch = 1.4;
+    speechSynthesis.speak(u);
+  }catch(_){}
+}
+
+/* ================= CONFETTI (2D overlay) ================= */
+const ov = $('ov'), o = ov.getContext('2d');
+let confetti = [];
+function burst(x, y, n, power=1){
+  for(let i=0;i<n;i++){
+    const a = Math.random()*Math.PI*2, sp = (250 + Math.random()*650)*power;
+    confetti.push({
+      x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp - 250*power,
+      w:8+Math.random()*12, h:5+Math.random()*9, rot:Math.random()*6, vr:(Math.random()-.5)*14,
+      c:CONFETTI_COLORS[(Math.random()*CONFETTI_COLORS.length)|0], life:1.8+Math.random()*1.2,
+      round:Math.random()<.35
+    });
+  }
+}
+function fireworks(){
+  for(let i=0;i<7;i++) setTimeout(()=>burst(W*(.15+Math.random()*.7), H*(.15+Math.random()*.4), 70, 1.1), i*230);
+}
+
+/* ================= WHEN A NUMBER IS CONFIRMED ================= */
+function onStable(n){
+  shown = n;
+  setDots(Math.max(n,0));
+  if(n < 0){
+    baseHue = 0; setTargetFor(-1);
+    return;
+  }
+  baseHue = n*33; setTargetFor(n);
+  playCount(n);
+  say(n === 10 ? 'Ten! Great job!' : NUM[n].w.toLowerCase() + '!');
+  if(n === 10) fireworks(); else burst(W/2, H*.4, 26 + n*6);
+}
+
+/* ================= OVERLAY DRAWING (hands + confetti) ================= */
+function drawOverlay(dt, t){
+  o.clearRect(0,0,W,H);
+  const lw = Math.max(6, Math.min(W,H)*.011);
+  const tips = [];
+  o.lineCap = 'round'; o.lineJoin = 'round';
+
+  tracked.forEach(h=>{
+    const P = h.lm.map(p => ({x:(1-p.x)*W, y:p.y*H}));
+    // palm
+    o.beginPath();
+    [0,1,5,9,13,17].forEach((i,k)=> k ? o.lineTo(P[i].x,P[i].y) : o.moveTo(P[i].x,P[i].y));
+    o.closePath();
+    o.fillStyle = 'rgba(255,255,255,.16)'; o.fill();
+    o.strokeStyle = 'rgba(255,255,255,.6)'; o.lineWidth = lw*.7; o.stroke();
+    // fingers
+    CHAINS.forEach((ch,f)=>{
+      const on = h.up[f], c = FCOL[f];
+      o.save();
+      o.strokeStyle = on ? c : 'rgba(255,255,255,.4)';
+      o.lineWidth = on ? lw*1.6 : lw*.9;
+      if(on){ o.shadowColor = c; o.shadowBlur = 24; }
+      o.beginPath();
+      o.moveTo(P[ch[0]].x, P[ch[0]].y);
+      for(let k=1;k<ch.length;k++) o.lineTo(P[ch[k]].x, P[ch[k]].y);
+      o.stroke();
+      o.restore();
+      ch.forEach(i=>{
+        o.beginPath(); o.arc(P[i].x, P[i].y, lw*(on?.85:.55), 0, 7);
+        o.fillStyle = on ? '#fff' : 'rgba(255,255,255,.5)'; o.fill();
+      });
+      if(on){
+        const tip = P[ch[3]], prev = P[ch[2]];
+        let dx = tip.x-prev.x, dy = tip.y-prev.y; const L = Math.hypot(dx,dy) || 1; dx/=L; dy/=L;
+        o.beginPath(); o.arc(tip.x, tip.y, lw*1.7, 0, 7);
+        o.fillStyle = c; o.fill(); o.lineWidth = 3; o.strokeStyle = '#fff'; o.stroke();
+        tips.push({x:tip.x, y:tip.y, dx, dy, c});
+      }
+    });
+    // fist -> boom!
+    if(h.n === 0){
+      const s = lw*9 * (1 + Math.sin(t*10)*.08);
+      o.font = `${s}px serif`; o.textAlign = 'center'; o.textBaseline = 'middle';
+      o.fillText('💥', P[9].x, P[9].y);
+    }
+  });
+
+  // numbered bubbles above every raised finger, counted left -> right
+  tips.sort((a,b)=>a.x-b.x).forEach((p,i)=>{
+    const bx = p.x + p.dx*lw*5.5, by = p.y + p.dy*lw*5.5, r = lw*2.5;
+    o.beginPath(); o.arc(bx, by, r, 0, 7);
+    o.fillStyle = '#fff'; o.fill();
+    o.lineWidth = 6; o.strokeStyle = p.c; o.stroke();
+    o.fillStyle = '#0b0620'; o.font = `800 ${r*1.5}px ${FONT}`;
+    o.textAlign = 'center'; o.textBaseline = 'middle';
+    o.fillText(i+1, bx, by + r*.06);
+  });
+
+  // confetti
+  confetti = confetti.filter(p => p.life > 0);
+  confetti.forEach(p=>{
+    p.vy += 900*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.rot += p.vr*dt; p.life -= dt;
+    o.save();
+    o.globalAlpha = Math.min(1, p.life);
+    o.translate(p.x, p.y); o.rotate(p.rot); o.fillStyle = p.c;
+    if(p.round){ o.beginPath(); o.arc(0,0,p.w/2,0,7); o.fill(); }
+    else o.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+    o.restore();
+  });
+}
+
+/* ================= MEDIAPIPE ================= */
+const cam = $('cam');
+let handsModel = null, handsReady = Promise.resolve();
+if(typeof Hands !== 'undefined'){
+  handsModel = new Hands({locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+  handsModel.setOptions({maxNumHands:2, modelComplexity:1, minDetectionConfidence:.6, minTrackingConfidence:.6});
+  handsModel.onResults(onResults);
+  handsReady = handsModel.initialize().catch(()=>{});     // download the model while the start screen is showing
+}
+async function pump(){
+  if(cam.readyState >= 2){
+    if(cam.videoWidth) AR = cam.videoWidth / cam.videoHeight;
+    try{ await handsModel.send({image:cam}); }catch(_){}
+  }
+  if('requestVideoFrameCallback' in cam) cam.requestVideoFrameCallback(pump);
+  else requestAnimationFrame(pump);
+}
+
+/* ================= START / BUTTONS ================= */
+$('startBtn').addEventListener('click', async ()=>{
+  const btn = $('startBtn'), msg = $('startMsg');
+  btn.disabled = true; btn.textContent = 'Loading magic… ✨';
+  try{
+    if(!handsModel) throw new Error('lib');
+    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); }catch(_){}
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'user', width:{ideal:960}, height:{ideal:540}, frameRate:{ideal:30, max:60}}, audio:false
+    });
+    cam.srcObject = stream;
+    await cam.play();
+    await handsReady;
+    $('start').classList.add('hide');
+    say("Let's count!");
+    pump();
+  }catch(e){
+    btn.disabled = false; btn.textContent = '▶ Try again';
+    msg.textContent = (e && e.name === 'NotAllowedError')
+      ? 'Please allow the camera and press the button again.'
+      : 'Could not start. Check the internet + camera, then try again.';
+  }
+});
+$('btnSound').onclick = ()=>{
+  soundOn = !soundOn;
+  $('btnSound').textContent = soundOn ? '🔊' : '🔇';
+  $('btnSound').classList.toggle('off', !soundOn);
+  if(!soundOn && 'speechSynthesis' in window) speechSynthesis.cancel();
+};
+let camOn = true;
+$('btnCam').onclick = ()=>{
+  camOn = !camOn;
+  cam.style.opacity = camOn ? .42 : 0;
+  $('btnCam').classList.toggle('off', !camOn);
+};
+$('btnFull').onclick = ()=>{
+  if(document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+};
+
+/* ================= RESIZE + MAIN LOOP ================= */
+function resize(){
+  W = innerWidth; H = innerHeight;
+  renderer.setSize(W, H, false);
+  camera.aspect = W/H; camera.updateProjectionMatrix();
+  visH = 2*8*Math.tan(Math.PI/6); visW = visH*camera.aspect;
+  const d = Math.min(devicePixelRatio || 1, 2);
+  ov.width = W*d; ov.height = H*d; o.setTransform(d,0,0,d,0,0);
+  rebuild();
+}
+addEventListener('resize', resize);
+resize();
+setDots(0);
+
+// make sure the big rounded font is ready, then redraw the particle text with it
+if(document.fonts && document.fonts.load){
+  document.fonts.load('800 100px "Baloo 2"').catch(()=>{}).then(rebuild);
+}
+
+let prev = performance.now();
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = Math.min(.05, (now-prev)/1000); prev = now;
+  const t = now/1000;
+  stepParticles(t);
+  renderer.render(scene, camera);
+  drawOverlay(dt, t);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
