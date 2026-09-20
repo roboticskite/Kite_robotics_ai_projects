@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Air Type</title>
+<style>
+  :root{
+    --bg:#0b0620; --pink:#ff3d81; --cyan:#31e1f7; --yellow:#ffd23f; --violet:#8b5cf6; --green:#2ee6a6;
+    padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;background:var(--bg);overflow:hidden;font-family:'Baloo 2',system-ui,sans-serif;}
+  #stage{position:fixed;inset:0;}
+  video{display:none;}
+  canvas#view{position:absolute;inset:0;width:100%;height:100%;}
+  #hud{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:0;right:0;display:flex;justify-content:center;pointer-events:none;padding:0 16px;padding-right:200px;}
+  #textbox{
+    pointer-events:auto;max-width:1200px;width:100%;min-height:clamp(64px,9vh,110px);background:rgba(11,6,32,.85);
+    border:4px solid var(--cyan);border-radius:18px;padding:8px 20px;color:#fff;font-size:clamp(32px,4vw,64px);line-height:1.2;
+    letter-spacing:.5px;box-shadow:0 0 24px rgba(49,225,247,.45);backdrop-filter:blur(6px);
+    display:flex;align-items:center;flex-wrap:wrap;gap:2px;white-space:pre-wrap;max-height:30vh;overflow-y:auto;
+  }
+  #txt{font-weight:800;background:linear-gradient(100deg,rgba(255,210,63,.4),rgba(255,61,129,.35));
+    padding:2px 8px;border-radius:8px;box-decoration-break:clone;-webkit-box-decoration-break:clone;}
+  #caret{display:inline-block;width:6px;height:1.1em;background:var(--yellow);animation:blink 1s steps(1) infinite;margin-left:2px;}
+  @keyframes blink{50%{opacity:0;}}
+  #topbar{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:14px;display:flex;gap:8px;}
+  .pill{pointer-events:auto;border:none;border-radius:999px;padding:12px 22px;font-family:inherit;font-weight:800;
+    font-size:clamp(18px,2vw,28px);cursor:pointer;color:#0b0620;background:var(--yellow);box-shadow:0 3px 0 rgba(0,0,0,.3);}
+  .pill:active{transform:translateY(2px);box-shadow:none;}
+  #status{position:absolute;bottom:calc(10px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);
+    color:#fff;font-size:clamp(16px,1.9vw,28px);font-weight:700;background:rgba(11,6,32,.8);padding:4px 18px;border-radius:999px;pointer-events:none;text-align:center;width:max-content;max-width:96%;}
+  #startOverlay{position:absolute;inset:0;background:radial-gradient(circle at 50% 40%,#241a4d,#0b0620);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;color:#fff;text-align:center;padding:24px;z-index:5;}
+  #startOverlay h1{font-size:clamp(48px,7vw,96px);margin:0;background:linear-gradient(90deg,var(--pink),var(--cyan),var(--yellow));
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  #startOverlay p{max-width:900px;opacity:.95;line-height:1.5;font-size:clamp(20px,2.4vw,34px);margin:0;}
+  #startBtn{pointer-events:auto;font-family:inherit;font-size:clamp(24px,2.8vw,40px);font-weight:800;color:#0b0620;
+    background:linear-gradient(90deg,var(--green),var(--cyan));border:none;border-radius:999px;padding:18px 48px;
+    cursor:pointer;box-shadow:0 6px 0 rgba(0,0,0,.3);}
+  #startBtn:active{transform:translateY(4px);box-shadow:none;}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="stage">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="view"></canvas>
+  <div id="hud"><div id="textbox"><span id="txt"></span><span id="caret"></span></div></div>
+  <div id="topbar">
+    <button class="pill" id="clearBtn">✕ Clear all</button>
+  </div>
+  <div id="status">Pinch thumb + index finger over a key to type</div>
+  <div id="startOverlay">
+    <h1>Air Type ✨</h1>
+    <p>Turn your hand into a keyboard. Allow camera access, hold your hand up, and pinch your thumb and index finger together over a key to type it.</p>
+    <button id="startBtn">Open Camera & Start</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d');
+const txtEl = document.getElementById('txt');
+const statusEl = document.getElementById('status');
+let typed = '';
+
+function resize(){canvas.width = innerWidth; canvas.height = innerHeight;}
+addEventListener('resize', resize); resize();
+
+// ---- Keyboard layout: realistic staggered QWERTY ----
+// each row: {keys:[{label, span}], offset} offset/span measured in "unit" key widths
+const NEUTRAL = '#ffffff';
+const rowDefs = [
+  { offset:0,    keys:[..."1234567890"].map(l=>({label:l,span:1})).concat([{label:'DEL',span:2,color:'#ff3d81'}]) },
+  { offset:0.5,  keys:[..."QWERTYUIOP"].map(l=>({label:l,span:1})) },
+  { offset:0.75, keys:[..."ASDFGHJKL"].map(l=>({label:l,span:1})).concat([{label:'ENTER',span:1.5,color:'#31e1f7'}]) },
+  { offset:0.75, keys:[{label:'SHIFT',span:1.5,color:'#8b5cf6'}].concat([..."ZXCVBNM"].map(l=>({label:l,span:1}))).concat([{label:',',span:1},{label:'.',span:1}]) },
+  { offset:0,    keys:[{label:'SPACE',span:12,color:'#2ee6a6'}], center:true }
+];
+const UNITS = 12;
+let keyRects = []; // {x,y,w,h,label,color}
+let kbBounds = {x:0,y:0,w:0,h:0};
+let isShift = false;
+
+function layoutKeys(){
+  keyRects = [];
+  const kbTop = canvas.height*0.25, kbH = canvas.height*0.67;
+  const rowH = kbH/rowDefs.length, pad = 6;
+  const kbWidth = Math.min(canvas.width*0.98, 1200);
+  const unit = kbWidth/UNITS;
+  const startX = (canvas.width-kbWidth)/2;
+
+  rowDefs.forEach((row,r)=>{
+    const rowUnits = row.keys.reduce((s,k)=>s+k.span,0);
+    let x = row.center ? startX + (kbWidth-rowUnits*unit)/2 : startX + row.offset*unit;
+    row.keys.forEach(k=>{
+      const w = k.span*unit;
+      keyRects.push({
+        x:x+pad/2, y:kbTop+r*rowH+pad/2, w:w-pad, h:rowH-pad,
+        label:k.label, color:k.color || NEUTRAL
+      });
+      x += w;
+    });
+  });
+  const xs = keyRects.map(k=>k.x), ys = keyRects.map(k=>k.y);
+  const xe = keyRects.map(k=>k.x+k.w), ye = keyRects.map(k=>k.y+k.h);
+  kbBounds = {
+    x: Math.min(...xs)-14, y: Math.min(...ys)-14,
+    w: Math.max(...xe)-Math.min(...xs)+28, h: Math.max(...ye)-Math.min(...ys)+28
+  };
+}
+
+function addChar(ch){
+  typed += ch;
+  txtEl.textContent = typed;
+  flashKey(ch);
+}
+function backspace(){ typed = typed.slice(0,-1); txtEl.textContent = typed; }
+function clearAll(){ typed=''; txtEl.textContent=''; }
+
+document.getElementById('clearBtn').onclick = clearAll;
+
+let flashMap = {};
+function flashKey(label){ flashMap[label] = performance.now(); }
+
+
+// NOTE: "Baloo 2" MUST be quoted. Unquoted, the canvas rejects the whole font string
+// (a family word can't start with a digit) and silently keeps the tiny 10px default.
+const FONT_FAMILY = '"Baloo 2", "Segoe UI", Arial, sans-serif';
+const fitCache = {};
+function fitLabel(label, w, h){
+  const multi = label.length > 1;
+  // all single characters share one size so the keyboard looks even (sized by the widest letter, W)
+  const probe = multi ? label : 'W';
+  const key = probe + '|' + Math.round(w) + '|' + Math.round(h);
+  if(fitCache[key]) return fitCache[key];
+  ctx.font = '900 100px ' + FONT_FAMILY;
+  const cap100 = ctx.measureText('H').actualBoundingBoxAscent || 70;
+  let fs = 100 * (h * (multi ? 0.46 : 0.70)) / cap100;   // letter height as a share of key height
+  const lw = ctx.measureText(probe).width * fs / 100;
+  if(lw > w * 0.92) fs *= (w * 0.92) / lw;               // shrink evenly (no squishing) if too wide
+  fs = Math.max(fs, 16);
+  return fitCache[key] = { fs, cap: cap100 * fs / 100 };
+}
+
+function drawKeyboard(hoverKeys){
+  // backing panel so keys read clearly against the camera feed
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = '#0b0620';
+  roundRect(kbBounds.x, kbBounds.y, kbBounds.w, kbBounds.h, 20);
+  ctx.fill();
+  ctx.restore();
+
+  keyRects.forEach(k=>{
+    const isHover = hoverKeys.includes(k);
+    const flash = flashMap[k.label] && performance.now()-flashMap[k.label] < 250;
+    const bevel = Math.max(3, k.h*0.08);
+
+    ctx.save();
+    // keycap shadow / bottom bevel (3D press effect)
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    roundRect(k.x, k.y+bevel, k.w, k.h, 9);
+    ctx.fill();
+
+    // keycap top face
+    const isNeutral = k.color === NEUTRAL;
+    ctx.fillStyle = flash ? '#ffffff' : k.color;
+    ctx.globalAlpha = flash ? 1 : (isNeutral ? 1 : 0.96);
+    roundRect(k.x, k.y, k.w, k.h-bevel*(isHover&&!flash?0.4:1), 9);
+    ctx.fill();
+    if(isNeutral && !flash){
+      ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(11,6,32,.35)'; ctx.stroke();
+    }
+    if(isHover && !flash){
+      ctx.lineWidth = 6; ctx.strokeStyle = isNeutral ? '#8b5cf6' : '#ffffff'; ctx.stroke();
+    }
+    if(k.label==='SHIFT' && isShift){
+      ctx.lineWidth = 4; ctx.strokeStyle = '#ffd23f'; ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // ---- label (big, high-contrast for projector) ----
+    const fit = fitLabel(k.label, k.w, k.h);
+    const faceH = k.h - bevel*(isHover&&!flash?0.4:1);
+    ctx.font = '900 ' + fit.fs + 'px ' + FONT_FAMILY;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    const tx = k.x + k.w/2;
+    const ty = k.y + faceH/2 + fit.cap/2;   // centre the capital height in the key face
+    ctx.lineJoin = 'round';
+    if(isNeutral){
+      ctx.fillStyle = flash ? '#0b0620' : '#000000';
+      ctx.fillText(k.label, tx, ty);
+    } else {
+      ctx.lineWidth = Math.max(4, fit.fs*0.12);
+      ctx.strokeStyle = 'rgba(11,6,32,.85)';
+      ctx.strokeText(k.label, tx, ty);
+      ctx.fillStyle = flash ? '#0b0620' : '#ffffff';
+      ctx.fillText(k.label, tx, ty);
+    }
+    ctx.restore();
+  });
+}
+
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+// ---- Hand tracking ----
+let lastResults = null;
+const pinchState = {}; // handIndex -> {down:bool, lastClick:0}
+
+const hands = new Hands({locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+hands.setOptions({maxNumHands:2, modelComplexity:1, minDetectionConfidence:0.7, minTrackingConfidence:0.6});
+hands.onResults((res)=>{ lastResults = res; });
+
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+function processHands(){
+  const hoverKeys = [];
+  if(lastResults && lastResults.multiHandLandmarks){
+    lastResults.multiHandLandmarks.forEach((lm, idx)=>{
+      const indexTip = lm[8], thumbTip = lm[4], wrist = lm[0], midKnuckle = lm[9];
+      const handScale = dist(wrist, midKnuckle) || 0.1;
+      const pinchDist = dist(indexTip, thumbTip) / handScale;
+
+      // mirrored screen coords
+      const px = (1-indexTip.x)*canvas.width;
+      const py = indexTip.y*canvas.height;
+
+      // draw fingertip cursor
+      ctx.beginPath();
+      ctx.arc(px,py, pinchDist<0.6?30:22, 0, Math.PI*2);
+      ctx.fillStyle = idx===0 ? 'rgba(255,61,129,.85)' : 'rgba(49,225,247,.85)';
+      ctx.fill();
+
+      // hit test
+      const hit = keyRects.find(k=> px>=k.x && px<=k.x+k.w && py>=k.y && py<=k.y+k.h);
+      if(hit) hoverKeys.push(hit);
+
+      const st = pinchState[idx] || {down:false, lastClick:0};
+      const now = performance.now();
+      if(pinchDist < 0.55){
+        if(!st.down && hit && now-st.lastClick>450){
+          if(hit.label==='DEL') { backspace(); flashKey(hit.label); }
+          else if(hit.label==='SPACE') { addChar(' '); flashMap[hit.label]=now; }
+          else if(hit.label==='ENTER') { addChar('\n'); flashMap[hit.label]=now; }
+          else if(hit.label==='SHIFT') { isShift = !isShift; flashMap[hit.label]=now; }
+          else if(hit.label.length===1 && /[A-Z]/.test(hit.label)) {
+            addChar(isShift ? hit.label : hit.label.toLowerCase());
+          }
+          else { addChar(hit.label); }
+          st.lastClick = now;
+        }
+        st.down = true;
+      } else if(pinchDist > 0.8){
+        st.down = false;
+      }
+      pinchState[idx] = st;
+    });
+  }
+  drawKeyboard(hoverKeys);
+}
+
+async function renderLoop(){
+  ctx.save();
+  ctx.scale(-1,1);
+  ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+  ctx.restore();
+  layoutKeys();
+  processHands();
+  requestAnimationFrame(renderLoop);
+}
+
+async function sendLoop(){
+  if(video.readyState>=2){ await hands.send({image:video}); }
+  requestAnimationFrame(sendLoop);
+}
+
+document.getElementById('startBtn').addEventListener('click', async ()=>{
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false});
+    video.srcObject = stream;
+    await video.play();
+    try{ await document.fonts.load('900 100px "Baloo 2"'); }catch(_){}
+    for(const k in fitCache) delete fitCache[k];
+    document.getElementById('startOverlay').style.display='none';
+    layoutKeys();
+    renderLoop();
+    sendLoop();
+  }catch(e){
+    statusEl.textContent = 'Camera access failed — please allow camera permission and reload.';
+    document.getElementById('startOverlay').querySelector('p').textContent =
+      'Could not access your camera. Check your browser permissions and try again.';
+  }
+});
+</script>
+</body>
+</html>
