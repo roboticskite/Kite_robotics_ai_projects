@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Calculator</title>
+<style>
+  :root { --accent: #38bdf8; --muted: #94a3b8; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #e2e8f0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  #stage { position: fixed; inset: 0; background: radial-gradient(circle at 30% 30%, #13203a, #000); }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  #skel { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 30px; color: var(--muted); font-size: 1.1rem; line-height: 1.6; }
+
+  /* calculator */
+  #calc { position: fixed; right: 3vw; top: 50%; transform: translateY(-50%); width: clamp(270px, 30vw, 430px); z-index: 10;
+    background: rgba(15,23,42,.84); backdrop-filter: blur(8px); border: 1px solid rgba(148,163,184,.3);
+    border-radius: 22px; padding: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  #screen { background: #020617; border-radius: 14px; padding: 10px 16px; text-align: right; min-height: 96px; overflow: hidden; }
+  #expr { color: var(--muted); font-size: 1rem; min-height: 1.4em; word-break: break-all; }
+  #out { font-size: clamp(2rem, 4.2vw, 3.4rem); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+  #keys button { height: clamp(54px, 8.5vh, 88px); border: 0; border-radius: 14px; font: inherit; font-size: clamp(1.3rem, 2.5vw, 2rem);
+    font-weight: 600; background: #334155; color: #fff; cursor: pointer; transition: transform .08s, filter .15s; }
+  #keys button.fn { background: #475569; }
+  #keys button.op { background: #f59e0b; color: #1c1100; }
+  #keys button.eq { background: #22c55e; color: #052e16; }
+  #keys button.hover { outline: 4px solid var(--accent); transform: scale(1.07); z-index: 2; position: relative; }
+  #keys button.press { transform: scale(.9); filter: brightness(1.6); }
+
+  /* hand cursor */
+  #cursor { position: fixed; left: 0; top: 0; width: 38px; height: 38px; margin: -19px 0 0 -19px; border-radius: 50%;
+    border: 3px solid var(--accent); background: rgba(56,189,248,.18); pointer-events: none; z-index: 40; display: none; }
+  #cursor.pinch { background: rgba(34,197,94,.7); border-color: #22c55e; transform: scale(.7); }
+  #ring { position: fixed; left: 0; top: 0; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; pointer-events: none; z-index: 39; display: none;
+    background: conic-gradient(#22c55e var(--p, 0%), rgba(0,0,0,0) 0);
+    -webkit-mask: radial-gradient(circle, transparent 60%, #000 62%); mask: radial-gradient(circle, transparent 60%, #000 62%); }
+
+  /* top bar + help */
+  #top { position: fixed; left: 12px; top: 12px; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: 60vw; }
+  .chip { background: rgba(15,23,42,.8); border: 1px solid rgba(148,163,184,.3); color: #fff; padding: 6px 13px;
+    border-radius: 999px; font-size: .85rem; font: inherit; font-size: .85rem; }
+  button.chip { cursor: pointer; }
+  #retry { display: none; background: var(--accent); color: #04223a; font-weight: 700; border: 0; }
+  #help { position: fixed; left: 12px; bottom: 12px; z-index: 20; width: min(330px, 90vw); background: rgba(15,23,42,.8);
+    border: 1px solid rgba(148,163,184,.3); border-radius: 14px; padding: 12px 14px; font-size: .85rem; line-height: 1.55; }
+  #help h2 { margin: 0 0 6px; font-size: .95rem; color: var(--accent); }
+  #help b { color: #fde68a; }
+  @media (max-width: 760px) { #calc { right: 50%; transform: translate(50%, -50%); width: 92vw; } #help { display: none; } }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="skel"></canvas>
+  <div id="ph">Starting camera… please allow camera access.<br>Everything runs locally in your browser. No video is uploaded.</div>
+</div>
+
+<div id="top">
+  <span class="chip" id="camChip">Camera: starting…</span>
+  <span class="chip" id="handChip">Hand: –</span>
+  <span class="chip" id="pinchChip">Pinch: –</span>
+  <button class="chip" id="dwellBtn">Hold-to-press: ON</button>
+  <button class="chip" id="fsBtn">⛶ Fullscreen</button>
+  <button class="chip" id="retry">Enable Camera</button>
+</div>
+
+<div id="calc">
+  <div id="screen"><div id="expr"></div><div id="out">0</div></div>
+  <div id="keys"></div>
+</div>
+
+<div id="help">
+  <h2>How to use</h2>
+  1. Show your hand to the camera.<br>
+  2. Point at a key with your <b>index finger</b>. The key lights up.<br>
+  3. <b>Pinch</b> (thumb + index finger) to press it, or <b>hold</b> your finger on the key for 1 second.<br>
+  Mouse, touch and the keyboard work too.
+</div>
+
+<div id="cursor"></div><div id="ring"></div>
+
+<script type="module">
+import { FilesetResolver, HandLandmarker }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* ------------------------------ Calculator ------------------------------ */
+const LAYOUT = [
+  ["C", "fn"], ["⌫", "fn"], ["%", "fn"], ["÷", "op"],
+  ["7"], ["8"], ["9"], ["×", "op"],
+  ["4"], ["5"], ["6"], ["−", "op"],
+  ["1"], ["2"], ["3"], ["+", "op"],
+  ["±", "fn"], ["0"], ["."], ["=", "eq"],
+];
+const keysEl = $("keys");
+LAYOUT.forEach(([k, cls]) => {
+  const b = document.createElement("button");
+  b.textContent = k; b.dataset.k = k; if (cls) b.className = cls;
+  b.addEventListener("click", () => press(k));
+  keysEl.appendChild(b);
+});
+const btns = [...keysEl.querySelectorAll("button")];
+
+const OPMAP = { "÷": "/", "×": "*", "−": "-", "+": "+" };
+const isOp = (c) => "+-*/".includes(c);
+const showExpr = (e) => e.replace(/\*/g, "×").replace(/\//g, "÷").replace(/-/g, "−");
+let expr = "", justEval = false, small = "", err = false;
+
+function evaluate(src) {
+  src = src.replace(/[+\-*/]+$/, "");
+  if (!src) return null;
+  const t = src.match(/\d+\.?\d*|\.\d+|[+\-*/%]/g) || [];
+  let i = 0;
+  const peek = () => t[i], next = () => t[i++];
+  function factor() {
+    let sign = 1;
+    while (peek() === "-" || peek() === "+") { if (next() === "-") sign = -sign; }
+    const tok = next();
+    if (tok === undefined || !/^[\d.]/.test(tok)) throw new Error("syntax");
+    let v = parseFloat(tok);
+    while (peek() === "%") { next(); v /= 100; }
+    return sign * v;
+  }
+  function term() {
+    let v = factor();
+    while (peek() === "*" || peek() === "/") {
+      const o = next(), r = factor();
+      if (o === "/") { if (r === 0) throw new Error("div0"); v /= r; } else v *= r;
+    }
+    return v;
+  }
+  function sum() {
+    let v = term();
+    while (peek() === "+" || peek() === "-") { const o = next(), r = term(); v = o === "+" ? v + r : v - r; }
+    return v;
+  }
+  try {
+    const v = sum();
+    if (i !== t.length || !isFinite(v)) return null;
+    return parseFloat(v.toPrecision(12));
+  } catch (e) { return null; }
+}
+
+function lastNumber(e) {
+  const toks = e.match(/\d+\.?\d*%?|\.\d+%?|[+\-*/]/g) || [];
+  for (let i = toks.length - 1; i >= 0; i--) if (/^[\d.]/.test(toks[i])) return toks[i];
+  return "0";
+}
+
+function press(k) {
+  beep(); flashKey(k);
+  const last = expr[expr.length - 1];
+  if (err && k !== "C") { expr = ""; err = false; justEval = false; small = ""; }
+  if (k === "C") { expr = ""; justEval = false; small = ""; err = false; }
+  else if (k === "⌫") { if (justEval) { expr = ""; justEval = false; small = ""; } else expr = expr.slice(0, -1); }
+  else if (k === "=") {
+    if (!expr || isOp(expr.replace(/[+\-*/]+$/, "").slice(-1)) ) { /* nothing to calculate */ }
+    if (expr) {
+      const r = evaluate(expr);
+      small = showExpr(expr) + " =";
+      if (r === null) { err = true; expr = ""; } else expr = String(r);
+      justEval = true;
+    }
+  }
+  else if (/^\d$/.test(k)) {
+    if (justEval) { expr = ""; justEval = false; small = ""; }
+    const m = expr.match(/\d+\.?\d*%?$|\.\d+%?$/);
+    if (m && m[0] === "0") expr = expr.slice(0, -1) + k;
+    else if (m && m[0].endsWith("%")) { /* ignore digit right after % */ }
+    else expr += k;
+  }
+  else if (k === ".") {
+    if (justEval) { expr = ""; justEval = false; small = ""; }
+    const m = expr.match(/[\d.]+%?$/);
+    if (m && m[0].includes(".")) return render();
+    if (m && m[0].endsWith("%")) return render();
+    expr += m ? "." : "0.";
+  }
+  else if (OPMAP[k]) {
+    const op = OPMAP[k];
+    if (justEval) { justEval = false; small = ""; }
+    if (!expr) { if (op === "-") expr = "-"; }
+    else if (isOp(last)) expr = expr.slice(0, -1) + op;
+    else expr += op;
+  }
+  else if (k === "%") {
+    if (justEval) { justEval = false; small = ""; }
+    if (/\d$/.test(expr)) expr += "%";
+  }
+  else if (k === "±") {
+    if (justEval) { justEval = false; small = ""; }
+    const m = expr.match(/[\d.]+%?$/);
+    if (m) {
+      const start = expr.length - m[0].length, before = expr.slice(0, start);
+      if (before.endsWith("-") && (before.length === 1 || isOp(before[before.length - 2]))) expr = before.slice(0, -1) + m[0];
+      else expr = before + "-" + m[0];
+    }
+  }
+  render();
+}
+
+function render() {
+  $("expr").textContent = justEval || err ? small : showExpr(expr);
+  $("out").textContent = err ? "Error" : justEval ? expr : lastNumber(expr);
+}
+function flashKey(k) {
+  const b = btns.find((x) => x.dataset.k === k); if (!b) return;
+  b.classList.add("press"); setTimeout(() => b.classList.remove("press"), 180);
+}
+let ac;
+function beep() {
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === "suspended") ac.resume();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.value = 760; g.gain.value = 0.05; o.connect(g); g.connect(ac.destination);
+    o.start(); o.stop(ac.currentTime + 0.07);
+  } catch (e) {}
+}
+
+document.addEventListener("keydown", (e) => {
+  const k = e.key;
+  if (/^\d$/.test(k)) press(k);
+  else if (k === "+") press("+");
+  else if (k === "-") press("−");
+  else if (k === "*" || k === "x" || k === "X") press("×");
+  else if (k === "/") { e.preventDefault(); press("÷"); }
+  else if (k === "." || k === ",") press(".");
+  else if (k === "%") press("%");
+  else if (k === "Enter" || k === "=") { e.preventDefault(); press("="); }
+  else if (k === "Backspace") press("⌫");
+  else if (k === "Escape" || k === "c" || k === "C") press("C");
+  else if (k === "f" || k === "F") toggleFS();
+});
+function toggleFS() {
+  try { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); else document.exitFullscreen(); } catch (e) {}
+}
+$("fsBtn").onclick = toggleFS;
+render();
+
+/* ------------------------------ Hand tracking ------------------------------ */
+const video = $("video"), sk = $("skel"), sctx = sk.getContext("2d");
+const cursor = $("cursor"), ring = $("ring");
+let handLm = null, camOn = false, dwellOn = true;
+const DWELL = 1000;
+const HCONN = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+function resize() { sk.width = window.innerWidth; sk.height = window.innerHeight; }
+resize(); window.addEventListener("resize", resize);
+
+$("dwellBtn").onclick = () => { dwellOn = !dwellOn; $("dwellBtn").textContent = "Hold-to-press: " + (dwellOn ? "ON" : "OFF"); };
+
+async function startCamera() {
+  $("retry").style.display = "none"; $("ph").style.display = "flex";
+  $("ph").innerHTML = "Starting camera… please allow camera access.<br>Everything runs locally in your browser. No video is uploaded.";
+  $("camChip").textContent = "Camera: starting…";
+  try {
+    if (!handLm) {
+      const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+      handLm = await HandLandmarker.createFromOptions(fs, {
+        baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarks/hand_landmarker/float16/1/hand_landmarker.task".replace("hand_landmarks", "hand_landmarker") },
+        runningMode: "VIDEO", numHands: 1, minHandDetectionConfidence: 0.6, minTrackingConfidence: 0.5,
+      });
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" }, audio: false });
+    video.srcObject = stream; await video.play();
+    camOn = true; $("ph").style.display = "none"; $("camChip").textContent = "Camera: on";
+  } catch (e) {
+    camOn = false;
+    $("ph").innerHTML = "Camera could not start.<br>You can still use the calculator with the mouse, touch or keyboard.";
+    $("camChip").textContent = "Camera: off";
+    $("retry").style.display = "inline-block";
+  }
+}
+$("retry").onclick = startCamera;
+
+// map a landmark to screen pixels (video is object-fit: cover and mirrored)
+function toScreen(p) {
+  const W = window.innerWidth, H = window.innerHeight, vw = video.videoWidth, vh = video.videoHeight;
+  const sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
+  return { x: W - (p.x * dw + ox), y: p.y * dh + oy };
+}
+function btnAt(x, y) {
+  for (const b of btns) { const r = b.getBoundingClientRect(); if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return b; }
+  return null;
+}
+
+const ptr = { x: 0, y: 0, has: false, seen: 0 };
+let hist = [], pinching = false, hover = null, hoverSince = 0, dwellLocked = null, lastVT = -1;
+
+function processHand(t) {
+  if (!camOn || !handLm || video.readyState < 2 || video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  const res = handLm.detectForVideo(video, t);
+  sctx.clearRect(0, 0, sk.width, sk.height);
+  if (res.landmarks && res.landmarks.length) {
+    const lm = res.landmarks[0], vw = video.videoWidth, vh = video.videoHeight;
+    const pts = lm.map(toScreen);
+    sctx.strokeStyle = "rgba(56,189,248,.9)"; sctx.lineWidth = 3;
+    HCONN.forEach(([a, b]) => { sctx.beginPath(); sctx.moveTo(pts[a].x, pts[a].y); sctx.lineTo(pts[b].x, pts[b].y); sctx.stroke(); });
+    sctx.fillStyle = "#fbbf24"; pts.forEach((p) => { sctx.beginPath(); sctx.arc(p.x, p.y, 4, 0, 7); sctx.fill(); });
+
+    const tip = pts[8];
+    if (!ptr.has) { ptr.x = tip.x; ptr.y = tip.y; }
+    ptr.x += (tip.x - ptr.x) * 0.45; ptr.y += (tip.y - ptr.y) * 0.45;
+    ptr.has = true; ptr.seen = t;
+    hist.push({ t, x: ptr.x, y: ptr.y }); while (hist.length && t - hist[0].t > 400) hist.shift();
+
+    const d = (a, b) => Math.hypot((a.x - b.x) * vw, (a.y - b.y) * vh);
+    const ratio = d(lm[4], lm[8]) / (d(lm[0], lm[9]) + 1e-6);
+    const was = pinching;
+    if (!pinching && ratio < 0.30) pinching = true;
+    else if (pinching && ratio > 0.45) pinching = false;
+    if (pinching && !was) {
+      const ref = hist.find((h) => t - h.t <= 260) || hist[hist.length - 1];   // where the finger was just before pinching
+      const target = btnAt(ref.x, ref.y) || btnAt(ptr.x, ptr.y);
+      if (target) press(target.dataset.k);
+      dwellLocked = target;
+    }
+    $("handChip").textContent = "Hand: tracking";
+    $("pinchChip").textContent = "Pinch: " + (pinching ? "PRESS" : "open");
+  } else if (ptr.has && t - ptr.seen > 400) {
+    ptr.has = false; pinching = false; hist = [];
+    $("handChip").textContent = "Hand: –"; $("pinchChip").textContent = "Pinch: –";
+  }
+}
+
+function updateCursor(t) {
+  if (!ptr.has) {
+    cursor.style.display = "none"; ring.style.display = "none";
+    if (hover) { hover.classList.remove("hover"); hover = null; }
+    return;
+  }
+  const b = btnAt(ptr.x, ptr.y);
+  if (b !== hover) { if (hover) hover.classList.remove("hover"); hover = b; hoverSince = t; if (b) b.classList.add("hover"); }
+  if (dwellLocked && b !== dwellLocked) dwellLocked = null;
+  let p = 0;
+  if (b && dwellOn && !pinching && dwellLocked !== b) {
+    p = clamp((t - hoverSince) / DWELL, 0, 1);
+    if (p >= 1) { press(b.dataset.k); dwellLocked = b; p = 0; }
+  }
+  cursor.style.display = "block"; cursor.style.transform = `translate(${ptr.x}px, ${ptr.y}px)` + (pinching ? " scale(.7)" : "");
+  cursor.classList.toggle("pinch", pinching);
+  ring.style.display = p > 0 ? "block" : "none";
+  ring.style.transform = `translate(${ptr.x}px, ${ptr.y}px)`;
+  ring.style.setProperty("--p", (p * 100).toFixed(0) + "%");
+}
+
+function frame(t) {
+  processHand(t);
+  updateCursor(t);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+startCamera(); // camera opens automatically
+</script>
+</body>
+</html>
