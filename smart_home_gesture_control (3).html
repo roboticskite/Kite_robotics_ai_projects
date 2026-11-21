@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gesture &amp; Eye Controlled Smart Home</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #263449; --text: #e2e8f0; --muted: #94a3b8;
+    --accent: #38bdf8; --on: #22c55e; --off: #475569; --warn: #f59e0b; --danger: #ef4444;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg); color: var(--text); transition: background .6s;
+  }
+  body.night { background: #05070f; }
+  body.night .panel { background: #0b1020; }
+  header { padding: 20px 24px 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  h1 small { display: block; font-size: .85rem; font-weight: 400; color: var(--muted); margin-top: 4px; }
+  .badge { padding: 6px 14px; border-radius: 999px; background: var(--panel2); font-size: .85rem; }
+  body.night .badge.mode { background: #3b2f0b; color: #fcd34d; }
+  main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; padding: 16px 24px 32px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border-radius: var(--radius); padding: 18px; margin-bottom: 20px; transition: background .6s; }
+  .panel h2 { margin: 0 0 12px; font-size: 1.05rem; color: var(--accent); }
+  .cam { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 4/3; }
+  .cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  .cam .placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; color: var(--muted); }
+  .overlay { position: absolute; left: 10px; bottom: 10px; right: 10px; display: flex; gap: 8px; flex-wrap: wrap; z-index: 2; }
+  .chip { background: rgba(0,0,0,.65); padding: 6px 12px; border-radius: 999px; font-size: .85rem; }
+  button {
+    font: inherit; cursor: pointer; border: 0; border-radius: 10px; padding: 10px 16px;
+    background: var(--accent); color: #04223a; font-weight: 600; transition: transform .1s, opacity .2s;
+  }
+  button:hover { transform: translateY(-1px); }
+  button.secondary { background: var(--panel2); color: var(--text); }
+  button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .status { margin-top: 12px; display: grid; gap: 10px; }
+  .meter { height: 10px; background: var(--panel2); border-radius: 999px; overflow: hidden; }
+  .meter > div { height: 100%; width: 0; background: var(--accent); transition: width .08s linear; }
+  .meter.eye > div { background: var(--warn); }
+  .label { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
+  .devices { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .device {
+    background: var(--panel2); border-radius: 14px; padding: 16px 10px; text-align: center; cursor: pointer;
+    border: 2px solid transparent; transition: all .25s; user-select: none;
+  }
+  .device .icon { font-size: 2.2rem; filter: grayscale(1) opacity(.5); transition: all .25s; }
+  .device .name { margin-top: 6px; font-weight: 600; }
+  .device .state { font-size: .8rem; color: var(--muted); margin-top: 2px; }
+  .device.on { border-color: var(--on); box-shadow: 0 0 18px rgba(34,197,94,.35); }
+  .device.on .icon { filter: none; }
+  .device.on .state { color: var(--on); }
+  .device.bulb.on { border-color: #fbbf24; box-shadow: 0 0 28px rgba(251,191,36,.55); }
+  .device.bulb.on .state { color: #fbbf24; }
+  .device .num { font-size: .75rem; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(148,163,184,.15); }
+  th { color: var(--muted); font-weight: 500; }
+  .log { max-height: 180px; overflow: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .82rem; color: var(--muted); }
+  .log div { padding: 3px 0; border-bottom: 1px dashed rgba(148,163,184,.12); }
+  .setting { margin-bottom: 14px; }
+  input[type=range] { width: 100%; }
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(80px);
+    background: #0b1220; color: #fff; padding: 12px 22px; border-radius: 999px; border: 1px solid var(--accent);
+    opacity: 0; transition: all .3s; z-index: 10; pointer-events: none;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .note { font-size: .82rem; color: var(--muted); line-height: 1.5; }
+  .warn { color: var(--warn); }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 6px; }
+  pre { background: #0b1220; padding: 12px; border-radius: 10px; overflow: auto; font-size: .8rem; }
+
+  #room { width: 100%; height: auto; display: block; border-radius: 12px; background: #000; }
+  #room #darkness { transition: opacity .6s; }
+  #room .emit { opacity: 0; transition: opacity .5s; }
+  #room.light-on .e-light, #room.tv-on .e-tv, #room.ac-on .e-ac, #room.sound-on .e-sound, #room.bulb-on .e-bulb { opacity: 1; }
+  #room #sky { fill: #7dd3fc; transition: fill .6s; }
+  #room.night #sky { fill: #0f172a; }
+  #room #sun { transition: opacity .6s; } #room.night #sun { opacity: 0; }
+  #room #moon { opacity: 0; transition: opacity .6s; } #room.night #moon { opacity: 1; }
+  #room .stars { opacity: 0; transition: opacity .6s; } #room.night .stars { opacity: 1; }
+  .tvscreen { animation: tvhue 6s linear infinite; }
+  @keyframes tvhue { to { filter: hue-rotate(360deg); } }
+  .airline { fill: none; stroke: #7dd3fc; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 14 16; animation: flow 1s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -30; } }
+  .flake { fill: #e0f2fe; animation: fall 2.4s linear infinite; }
+  @keyframes fall { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(110px); opacity: 0; } }
+  .ring { fill: none; stroke: #4ade80; stroke-width: 3; transform-box: fill-box; transform-origin: center; animation: ring 1.4s ease-out infinite; }
+  @keyframes ring { 0% { transform: scale(.7); opacity: .9; } 100% { transform: scale(1.9); opacity: 0; } }
+  .cone { transform-box: fill-box; transform-origin: center; animation: thump .45s ease-in-out infinite alternate; }
+  @keyframes thump { to { transform: scale(1.18); } }
+  .note-f { font-size: 22px; fill: #fbbf24; animation: floatup 2.5s linear infinite; }
+  @keyframes floatup { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateY(-90px); opacity: 0; } }
+
+  .ground { fill: #65a30d; }
+  .roof { fill: #9a3412; transition: fill .6s; } #room.night .roof { fill: #431407; }
+  .shell { fill: #94a3b8; transition: fill .6s; } #room.night .shell { fill: #334155; }
+  .skyfill { fill: #7dd3fc; transition: fill .6s; } #room.night .skyfill { fill: #0f172a; }
+  .moonw { opacity: 0; transition: opacity .6s; } #room.night .moonw { opacity: 1; }
+  #room #darkOut, #room #darkBed, #room #darkLiving { transition: opacity .6s; }
+  #room .clouds { transition: opacity .6s; } #room.night .clouds { opacity: .12; }
+  .flake { animation: fallS 2.4s linear infinite; }
+  @keyframes fallS { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(44px); opacity: 0; } }
+  .note-f { animation: floatS 2.5s linear infinite; }
+  @keyframes floatS { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateY(-34px); opacity: 0; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Gesture &amp; Eye Controlled Smart Home
+    <small>Control Light, TV, AC and Sound with your hand. Close your eyes for Night Mode.</small>
+  </h1>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <span class="badge mode" id="modeBadge">Normal Mode</span>
+    <span class="badge">100% Virtual • No hardware needed</span>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="panel">
+      <h2>Live Camera</h2>
+      <div class="cam">
+        <div class="placeholder" id="placeholder">Starting camera… please allow camera access.<br>Everything runs locally in your browser. No video is uploaded.</div>
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div class="overlay">
+          <span class="chip" id="gestureChip">Gesture: –</span>
+          <span class="chip" id="eyeChip">Eyes: –</span>
+          <span class="chip" id="fpsChip">FPS: –</span>
+        </div>
+      </div>
+      <div class="row" id="retryRow" style="display:none"><button id="startBtn">Start Camera</button></div>
+      <div class="status">
+        <div>
+          <div class="label"><span>Gesture hold progress</span><span id="holdText">0%</span></div>
+          <div class="meter"><div id="holdBar"></div></div>
+        </div>
+        <div>
+          <div class="label"><span>Eyes-closed timer (Night Mode)</span><span id="eyeText">0.0 s</span></div>
+          <div class="meter eye"><div id="eyeBar"></div></div>
+        </div>
+        <div class="note" id="loadStatus">Models not loaded yet.</div>
+      </div>
+    </div>
+
+  </section>
+
+  <section>
+    <div class="panel">
+      <h2>My Smart House <span class="note">(everything you control shows up here)</span></h2>
+      <svg id="room" viewBox="0 0 640 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Virtual smart house">
+        <defs>
+          <radialGradient id="glowY" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fef3c7" stop-opacity=".95"/><stop offset="100%" stop-color="#fde68a" stop-opacity="0"/></radialGradient>
+          <radialGradient id="glowA" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fbbf24" stop-opacity=".9"/><stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/></radialGradient>
+          <radialGradient id="glowB" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#818cf8" stop-opacity=".6"/><stop offset="100%" stop-color="#6366f1" stop-opacity="0"/></radialGradient>
+          <linearGradient id="tvGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset=".5" stop-color="#ec4899"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
+          <clipPath id="clipUp"><rect x="92" y="160" width="456" height="124"/></clipPath>
+          <clipPath id="clipLow"><rect x="92" y="296" width="456" height="116"/></clipPath>
+        </defs>
+
+        <!-- sky, sun, clouds -->
+        <rect id="sky" width="640" height="480"/>
+        <g class="clouds" fill="#fff" opacity=".85"><ellipse cx="200" cy="70" rx="40" ry="14"/><ellipse cx="225" cy="62" rx="28" ry="12"/><ellipse cx="470" cy="100" rx="36" ry="12"/><ellipse cx="492" cy="93" rx="24" ry="10"/></g>
+        <circle id="sun" cx="80" cy="72" r="26" fill="#fde047"/>
+
+        <!-- garden -->
+        <rect class="ground" y="420" width="640" height="60"/>
+        <polygon points="285,422 355,422 410,480 230,480" fill="#d6d3d1"/>
+        <rect x="22" y="360" width="14" height="62" fill="#7c4a1e"/><circle cx="29" cy="338" r="38" fill="#15803d"/>
+        <rect x="604" y="366" width="14" height="56" fill="#7c4a1e"/><circle cx="611" cy="346" r="34" fill="#166534"/>
+        <circle cx="62" cy="428" r="14" fill="#16a34a"/><circle cx="580" cy="430" r="13" fill="#16a34a"/>
+        <circle cx="120" cy="446" r="4" fill="#f472b6"/><circle cx="140" cy="452" r="4" fill="#fbbf24"/><circle cx="500" cy="448" r="4" fill="#f472b6"/><circle cx="522" cy="454" r="4" fill="#fb7185"/>
+
+        <!-- outside darkness (night) -->
+        <rect id="darkOut" width="640" height="480" fill="#020617" opacity="0"/>
+        <circle id="moon" cx="570" cy="70" r="20" fill="#f1f5f9"/>
+        <g class="stars" fill="#fff"><circle cx="40" cy="40" r="2"/><circle cx="150" cy="30" r="1.8"/><circle cx="260" cy="24" r="2"/><circle cx="400" cy="36" r="1.8"/><circle cx="500" cy="22" r="2"/><circle cx="610" cy="130" r="1.8"/><circle cx="36" cy="130" r="1.8"/><circle cx="520" cy="60" r="1.5"/></g>
+
+        <!-- house shell + roof -->
+        <rect class="chimney" x="450" y="62" width="28" height="64" fill="#7f1d1d"/>
+        <polygon class="roof" points="56,152 320,38 584,152"/>
+        <rect class="shell" x="80" y="150" width="480" height="272" rx="4"/>
+        <text x="320" y="130" text-anchor="middle" font-size="13" font-weight="700" fill="#fde68a" font-family="Arial, sans-serif">SMART HOME</text>
+
+        <!-- UPPER FLOOR : bedroom -->
+        <rect x="92" y="160" width="456" height="124" fill="#e2e8f0"/>
+        <rect x="92" y="272" width="456" height="12" fill="#c19a6b"/>
+        <text x="100" y="178" font-size="11" font-weight="700" fill="#64748b" font-family="Arial, sans-serif">BEDROOM</text>
+        <!-- window -->
+        <rect class="skyfill" x="380" y="184" width="96" height="72" rx="4"/>
+        <circle class="moonw" cx="446" cy="206" r="10" fill="#f1f5f9"/>
+        <g class="stars" fill="#fff"><circle cx="396" cy="198" r="1.8"/><circle cx="414" cy="214" r="1.5"/><circle cx="462" cy="236" r="1.8"/><circle cx="400" cy="240" r="1.5"/></g>
+        <rect x="380" y="184" width="96" height="72" rx="4" fill="none" stroke="#94a3b8" stroke-width="5"/>
+        <line x1="428" y1="184" x2="428" y2="256" stroke="#94a3b8" stroke-width="3"/><line x1="380" y1="220" x2="476" y2="220" stroke="#94a3b8" stroke-width="3"/>
+        <!-- wardrobe -->
+        <rect x="492" y="196" width="48" height="76" rx="3" fill="#8b6a45"/><line x1="516" y1="200" x2="516" y2="270" stroke="#6b4f33" stroke-width="2"/>
+        <!-- bed -->
+        <rect x="106" y="246" width="176" height="26" rx="4" fill="#7c5a3a"/>
+        <rect x="112" y="232" width="164" height="18" rx="6" fill="#60a5fa"/>
+        <ellipse cx="136" cy="230" rx="22" ry="8" fill="#f8fafc"/>
+        <!-- night table + lamp -->
+        <rect x="292" y="248" width="50" height="24" rx="2" fill="#7c5a3a"/>
+        <rect x="313" y="232" width="10" height="16" fill="#64748b"/>
+        <polygon points="300,232 336,232 328,212 308,212" fill="#e2e8f0"/>
+        <!-- AC unit -->
+        <rect x="170" y="170" width="130" height="34" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+        <line x1="180" y1="196" x2="290" y2="196" stroke="#cbd5e1" stroke-width="3"/>
+        <line x1="332" y1="160" x2="332" y2="178" stroke="#475569" stroke-width="2"/>
+        <path d="M314 196 Q332 174 350 196 Z" fill="#475569"/>
+
+        <!-- floor slab -->
+        <rect x="80" y="284" width="480" height="12" fill="#7c5a3a"/>
+
+        <!-- LOWER FLOOR : living room -->
+        <rect x="92" y="296" width="456" height="116" fill="#f1f5f9"/>
+        <rect x="92" y="400" width="456" height="12" fill="#c19a6b"/>
+        <text x="100" y="308" font-size="11" font-weight="700" fill="#64748b" font-family="Arial, sans-serif">LIVING ROOM</text>
+        <!-- TV on table -->
+        <rect x="110" y="376" width="150" height="10" rx="2" fill="#7c5a3a"/>
+        <rect x="118" y="386" width="8" height="14" fill="#7c5a3a"/><rect x="244" y="386" width="8" height="14" fill="#7c5a3a"/>
+        <rect x="120" y="312" width="130" height="64" rx="5" fill="#111827"/>
+        <rect x="126" y="317" width="118" height="52" fill="#0b1220"/>
+        <!-- picture -->
+        <rect x="372" y="316" width="70" height="42" rx="2" fill="#fcd34d" stroke="#7c5a3a" stroke-width="3"/>
+        <polygon points="376,354 400,328 416,344 428,334 438,354" fill="#16a34a"/>
+        <!-- sofa -->
+        <rect x="306" y="346" width="118" height="28" rx="7" fill="#64748b"/>
+        <rect x="298" y="366" width="134" height="34" rx="6" fill="#475569"/>
+        <rect x="296" y="358" width="12" height="42" rx="5" fill="#334155"/><rect x="422" y="358" width="12" height="42" rx="5" fill="#334155"/>
+        <!-- speaker -->
+        <rect x="490" y="326" width="46" height="74" rx="7" fill="#1f2937"/>
+        <circle cx="513" cy="352" r="14" fill="#111827" stroke="#374151" stroke-width="3"/>
+        <circle cx="513" cy="382" r="9" fill="#111827" stroke="#374151" stroke-width="3"/>
+        <!-- ceiling lamp (static) -->
+        <line x1="320" y1="296" x2="320" y2="314" stroke="#475569" stroke-width="2"/>
+        <path d="M302 332 Q320 310 338 332 Z" fill="#475569"/>
+
+        <!-- room darkness overlays -->
+        <rect id="darkBed" x="92" y="160" width="456" height="124" fill="#020617" opacity=".68"/>
+        <rect id="darkLiving" x="92" y="296" width="456" height="116" fill="#020617" opacity=".68"/>
+
+        <!-- glowing parts (above the darkness) -->
+        <g class="emit e-light">
+          <circle cx="332" cy="205" r="150" fill="url(#glowY)" opacity=".8" clip-path="url(#clipUp)"/>
+          <path d="M314 196 Q332 174 350 196 Z" fill="#94a3b8"/>
+          <circle cx="332" cy="199" r="7" fill="#fff7c2"/>
+          <circle cx="320" cy="342" r="170" fill="url(#glowY)" opacity=".8" clip-path="url(#clipLow)"/>
+          <path d="M302 332 Q320 310 338 332 Z" fill="#94a3b8"/>
+          <circle cx="320" cy="335" r="7" fill="#fff7c2"/>
+        </g>
+
+        <g class="emit e-tv">
+          <circle cx="185" cy="345" r="140" fill="url(#glowB)" opacity=".55" clip-path="url(#clipLow)"/>
+          <rect class="tvscreen" x="126" y="317" width="118" height="52" fill="url(#tvGrad)"/>
+          <polygon points="176,330 176,352 198,341" fill="#fff" opacity=".85"/>
+        </g>
+
+        <g class="emit e-ac">
+          <circle cx="286" cy="187" r="3.5" fill="#22c55e"/>
+          <text id="acTemp" x="182" y="193" font-size="20" font-weight="700" fill="#0ea5e9" font-family="Arial, sans-serif">--</text>
+          <path class="airline" d="M190 208 Q184 228 192 252"/>
+          <path class="airline" style="animation-delay:.2s" d="M235 208 Q229 228 237 252"/>
+          <path class="airline" style="animation-delay:.4s" d="M280 208 Q274 228 282 252"/>
+          <circle class="flake" cx="205" cy="210" r="3" style="animation-delay:0s"/>
+          <circle class="flake" cx="250" cy="210" r="3" style="animation-delay:.6s"/>
+          <circle class="flake" cx="270" cy="210" r="3" style="animation-delay:1.2s"/>
+          <circle class="flake" cx="222" cy="210" r="2.5" style="animation-delay:1.8s"/>
+        </g>
+
+        <g class="emit e-sound">
+          <circle class="ring" cx="513" cy="352" r="16"/>
+          <circle class="ring" cx="513" cy="352" r="16" style="animation-delay:.7s"/>
+          <circle class="cone" cx="513" cy="352" r="8" fill="#4ade80"/>
+          <circle class="cone" cx="513" cy="382" r="5" fill="#4ade80"/>
+          <text class="note-f" x="470" y="324">♪</text>
+          <text class="note-f" x="500" y="324" style="animation-delay:.9s">♫</text>
+          <text class="note-f" x="486" y="324" style="animation-delay:1.7s">♪</text>
+        </g>
+
+        <g class="emit e-bulb">
+          <circle cx="318" cy="226" r="95" fill="url(#glowA)" clip-path="url(#clipUp)"/>
+          <polygon points="300,232 336,232 328,212 308,212" fill="#fde68a"/>
+        </g>
+      </svg>
+      <p class="note" style="margin-top:10px">Light = ceiling lamps in the whole house · TV and Sound = living room (downstairs) · AC and Night Bulb = bedroom (upstairs). Rooms get dark when the light is off, and the whole house and garden turn to night in Night Mode.</p>
+    </div>
+
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { FilesetResolver, HandLandmarker, FaceLandmarker }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), canvas = $("overlay"), ctx = canvas.getContext("2d");
+
+/* ---------------- Devices ---------------- */
+const devices = [
+  { name: "Light",      icon: "💡", on: false, hint: "1 finger" },
+  { name: "TV",         icon: "📺", on: false, hint: "2 fingers" },
+  { name: "AC",         icon: "❄️", on: false, hint: "3 fingers" },
+  { name: "Sound",      icon: "🔊", on: false, hint: "4 fingers" },
+  { name: "Night Bulb", icon: "🌙", on: false, hint: "Eyes closed", bulb: true },
+];
+let night = false;
+
+function render() {
+  document.body.classList.toggle("night", night);
+  updateRoom();
+  $("modeBadge").textContent = night ? "🌙 Night Mode" : "Normal Mode";
+}
+
+/* ---------------- Virtual room + music ---------------- */
+let musicTimer = null, musicOn = false;
+const NOTES = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25];
+function ensureAudio() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+  } catch (e) { return null; }
+}
+function startMusic() {
+  const c = ensureAudio(); if (!c || musicTimer) return;
+  musicTimer = setInterval(() => {
+    const o = c.createOscillator(), g = c.createGain(), now = c.currentTime;
+    o.type = "sine"; o.frequency.value = NOTES[Math.floor(Math.random() * NOTES.length)];
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.06, now + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0005, now + 0.9);
+    o.connect(g); g.connect(c.destination); o.start(now); o.stop(now + 1);
+  }, 450);
+}
+function stopMusic() { clearInterval(musicTimer); musicTimer = null; }
+document.addEventListener("pointerdown", ensureAudio);
+
+function updateRoom() {
+  const room = $("room");
+  room.classList.toggle("light-on", devices[0].on);
+  room.classList.toggle("tv-on", devices[1].on);
+  room.classList.toggle("ac-on", devices[2].on);
+  room.classList.toggle("sound-on", devices[3].on);
+  room.classList.toggle("bulb-on", devices[4].on);
+  room.classList.toggle("night", night);
+  $("darkOut").style.opacity = night ? 0.5 : 0;
+  $("darkLiving").style.opacity = devices[0].on ? 0 : night ? 0.88 : devices[1].on ? 0.5 : 0.68;
+  $("darkBed").style.opacity = devices[0].on ? 0 : devices[4].on ? 0.42 : 0.68;
+  $("acTemp").textContent = devices[2].on ? "22°C" : "--";
+  if (devices[3].on && !musicOn) { musicOn = true; startMusic(); }
+  if (!devices[3].on && musicOn) { musicOn = false; stopMusic(); }
+}
+
+/* ---------------- Actions ---------------- */
+function push(reason) {
+  render();
+  log(reason + "  →  " + devices.map((d) => `${d.name}:${d.on ? "ON" : "OFF"}`).join(", "));
+  toast(reason);
+  beep();
+}
+function toggle(i) {
+  night = false; devices[4].on = false;
+  devices[i].on = !devices[i].on;
+  push(`${devices[i].name} ${devices[i].on ? "ON" : "OFF"}`);
+}
+function allOn()  { night = false; devices.forEach((d, i) => d.on = i < 4); push("All devices ON"); }
+function allOff() { night = false; devices.forEach((d) => d.on = false); push("Everything OFF"); }
+function nightMode() { night = true; devices.forEach((d, i) => d.on = i === 4); push("Night Mode ON (Night Bulb only)"); }
+function runGesture(n) { if (n === 0) allOff(); else if (n === 5) allOn(); else toggle(n - 1); }
+
+
+/* ---------------- Helpers ---------------- */
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+function log(msg) { console.log(new Date().toLocaleTimeString() + "  " + msg); }
+let audioCtx;
+function beep() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = 880; g.gain.value = 0.05;
+    o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.12);
+  } catch (e) {}
+}
+
+/* ---------------- Settings ---------------- */
+let HOLD = 0.8, EYE_TIME = 2, BLINK = 0.55;
+
+/* ---------------- Vision models ---------------- */
+let handLandmarker, faceLandmarker, stream, running = false;
+async function loadModels() {
+  $("loadStatus").textContent = "Loading hand and face models (first time may take a few seconds)…";
+  const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  handLandmarker = await HandLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task" },
+    runningMode: "VIDEO", numHands: 1, minHandDetectionConfidence: 0.6, minTrackingConfidence: 0.5,
+  });
+  faceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" },
+    runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true,
+  });
+  $("loadStatus").textContent = "Models ready.";
+}
+
+async function startCamera() {
+  $("retryRow").style.display = "none";
+  $("placeholder").style.display = "flex";
+  $("placeholder").textContent = "Starting camera… please allow camera access.";
+  try {
+    if (!handLandmarker) await loadModels();
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+    video.srcObject = stream; await video.play();
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    $("placeholder").style.display = "none";
+    running = true; log("Camera started"); requestAnimationFrame(loop);
+  } catch (e) {
+    $("retryRow").style.display = "flex";
+    $("placeholder").style.display = "flex";
+    $("placeholder").textContent = "Camera could not start. Allow camera access, then click Start Camera.";
+    $("loadStatus").textContent = "Error: " + e.message + ". Allow camera access and open this page over https or localhost.";
+  }
+}
+$("startBtn").onclick = startCamera;
+
+/* ---------------- Finger counting ---------------- */
+function countFingers(lm, W, H) {
+  const d = (a, b) => Math.hypot((a.x - b.x) * W, (a.y - b.y) * H);
+  const wrist = lm[0]; let count = 0;
+  [[8, 6], [12, 10], [16, 14], [20, 18]].forEach(([tip, pip]) => { if (d(lm[tip], wrist) > d(lm[pip], wrist) * 1.05) count++; });
+  if (d(lm[4], lm[17]) > d(lm[3], lm[17]) * 1.05 && d(lm[4], lm[5]) > d(lm[3], lm[5])) count++;
+  return count;
+}
+
+/* ---------------- Main loop ---------------- */
+let cand = null, candSince = 0, fired = false, eyesClosedSince = null;
+let lastFrame = performance.now(), fpsAvg = 0, lastVideoTime = -1;
+
+function loop() {
+  if (!running) return;
+  if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    const t = performance.now(), W = video.videoWidth, H = video.videoHeight;
+    ctx.clearRect(0, 0, W, H);
+
+    /* Eyes */
+    let eyeText = "no face";
+    const fr = faceLandmarker.detectForVideo(video, t);
+    if (fr.faceBlendshapes && fr.faceBlendshapes.length) {
+      const c = fr.faceBlendshapes[0].categories;
+      const l = c.find((x) => x.categoryName === "eyeBlinkLeft")?.score ?? 0;
+      const r = c.find((x) => x.categoryName === "eyeBlinkRight")?.score ?? 0;
+      const closed = (l + r) / 2 > BLINK;
+      eyeText = closed ? "closed" : "open";
+      if (closed) {
+        if (eyesClosedSince === null) eyesClosedSince = t;
+        const el = (t - eyesClosedSince) / 1000;
+        $("eyeBar").style.width = Math.min(100, (el / EYE_TIME) * 100) + "%";
+        $("eyeText").textContent = el.toFixed(1) + " s";
+        if (el >= EYE_TIME && !night) nightMode();
+      } else { eyesClosedSince = null; $("eyeBar").style.width = "0"; $("eyeText").textContent = "0.0 s"; }
+    } else { eyesClosedSince = null; $("eyeBar").style.width = "0"; }
+    $("eyeChip").textContent = "Eyes: " + eyeText;
+
+    /* Hand */
+    const hr = handLandmarker.detectForVideo(video, t);
+    let gesture = null;
+    if (hr.landmarks && hr.landmarks.length) {
+      const lm = hr.landmarks[0];
+      drawHand(lm, W, H);
+      gesture = countFingers(lm, W, H);
+    }
+    $("gestureChip").textContent = "Gesture: " + (gesture === null ? "–" : gesture === 0 ? "Fist (all OFF)" : gesture === 5 ? "5 (all ON)" : gesture + " finger(s)");
+
+    if (gesture === null) { cand = null; fired = false; $("holdBar").style.width = "0"; $("holdText").textContent = "0%"; }
+    else if (gesture !== cand) { cand = gesture; candSince = t; fired = false; }
+    else if (!fired) {
+      const p = Math.min(1, (t - candSince) / 1000 / HOLD);
+      $("holdBar").style.width = p * 100 + "%"; $("holdText").textContent = Math.round(p * 100) + "%";
+      if (p >= 1) { fired = true; runGesture(cand); }
+    }
+
+    const dt = t - lastFrame; lastFrame = t; fpsAvg = fpsAvg * 0.9 + (1000 / dt) * 0.1;
+    $("fpsChip").textContent = "FPS: " + Math.round(fpsAvg);
+  }
+  requestAnimationFrame(loop);
+}
+
+const CONN = HandLandmarker.HAND_CONNECTIONS;
+function drawHand(lm, W, H) {
+  ctx.lineWidth = 3; ctx.strokeStyle = "#38bdf8";
+  CONN.forEach(({ start, end }) => {
+    ctx.beginPath(); ctx.moveTo(lm[start].x * W, lm[start].y * H); ctx.lineTo(lm[end].x * W, lm[end].y * H); ctx.stroke();
+  });
+  ctx.fillStyle = "#fbbf24";
+  lm.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * W, p.y * H, 4, 0, Math.PI * 2); ctx.fill(); });
+}
+
+render();
+startCamera(); // camera opens automatically
+</script>
+</body>
+</html>
