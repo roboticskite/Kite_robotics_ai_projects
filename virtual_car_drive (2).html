@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Car Drive</title>
+<style>
+  :root { --bg:#0b1020; --panel:#172036; --panel2:#22304d; --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  #game { position: fixed; inset: 0; background: #000; }
+  #c { width: 100%; height: 100%; display: block; }
+  .overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(2, 6, 23, .82); text-align: center; padding: 22px; gap: 10px;
+  }
+  .overlay h1 { margin: 0; font-size: 1.9rem; }
+  .overlay p { margin: 0; color: var(--muted); max-width: 340px; line-height: 1.45; }
+  .overlay .stats { color: #fde68a; font-weight: 600; }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 12px; padding: 12px 26px; background: var(--accent); color: #04223a; font-weight: 700; font-size: 1.05rem; }
+  button:hover { filter: brightness(1.1); }
+  table { border-collapse: collapse; font-size: .85rem; text-align: left; margin-top: 4px; }
+  td { padding: 3px 8px; border-bottom: 1px solid rgba(148,163,184,.15); }
+  td:first-child { color: #fde68a; white-space: nowrap; }
+  aside { position: fixed; right: 12px; top: 84px; width: 230px; max-width: 46vw; display: grid; gap: 10px; z-index: 5; }
+  .card { background: rgba(23,32,54,.82); backdrop-filter: blur(6px); border-radius: 14px; padding: 10px; }
+  .card h2 { margin: 0 0 10px; font-size: 1rem; color: var(--accent); }
+  .cam { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 4 / 3; }
+  .cam video, .cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  .cam .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 14px; color: var(--muted); font-size: .9rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { background: var(--panel2); padding: 5px 11px; border-radius: 999px; font-size: .8rem; }
+  .small { font-size: .8rem; color: var(--muted); line-height: 1.5; margin: 8px 0 0; }
+  #retry { display: none; margin-top: 10px; padding: 8px 16px; font-size: .9rem; }
+  #fsBtn { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 6px 14px;
+    font-size: .9rem; background: rgba(15,23,42,.75); color: #fff; border: 1px solid rgba(148,163,184,.4); }
+  aside table { font-size: .72rem; }
+  aside .small { font-size: .72rem; margin-top: 6px; }
+  #report { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center; background: rgba(2,6,23,.78); padding: 12px; }
+  #report .win { width: min(440px, 94vw); max-height: 92vh; display: flex; flex-direction: column; background: #111b30; border: 1px solid rgba(148,163,184,.3); border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.7); }
+  #report .winbar { background: #7f1d1d; padding: 12px 16px; font-weight: 700; font-size: 1.05rem; }
+  #report .winbody { padding: 14px 16px; overflow: auto; }
+  #report h3 { margin: 14px 0 6px; font-size: .95rem; color: var(--accent); }
+  .rsum { margin: 0 0 8px; font-size: .88rem; color: var(--muted); line-height: 1.5; }
+  .rchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rchips span { background: var(--panel2); padding: 3px 10px; border-radius: 999px; font-size: .75rem; }
+  .rrow { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid rgba(148,163,184,.12); font-size: .88rem; }
+  .rrow.sub { font-weight: 700; color: #fde68a; border-bottom: 0; }
+  .grand { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: #7f1d1d; font-weight: 700; }
+  .grand b { font-size: 1.35rem; }
+  .rnote { font-size: .75rem; color: var(--muted); margin: 10px 0 0; }
+  #goBtn { border-radius: 0; width: 100%; padding: 16px; font-size: 1.4rem; letter-spacing: .2em; background: #22c55e; color: #052e16; }
+</style>
+</head>
+<body>
+
+<div id="game">
+  <canvas id="c"></canvas>
+  <div class="overlay" id="overlay">
+    <h1 id="ovTitle">Virtual Car Drive</h1>
+    <p id="ovText">Drive a virtual car with your keyboard, or with hand gestures in front of your camera.</p>
+    <div class="stats" id="ovStats"></div>
+    <table>
+      <tr><td>↑ / W</td><td>Accelerate</td></tr>
+      <tr><td>↓ / S</td><td>Brake</td></tr>
+      <tr><td>← → / A D</td><td>Steer</td></tr>
+      <tr><td>Space / Shift</td><td>Nitro boost</td></tr>
+      <tr><td>H</td><td>Horn</td></tr>
+      <tr><td>N · M · P</td><td>Night mode · Mute · Pause</td></tr>
+      <tr><td>F · C</td><td>Fullscreen · Hide/show camera</td></tr>
+    </table>
+    <button id="startBtn">Start Driving</button>
+    <p style="font-size:.8rem">Or show an open hand to the camera for 1 second.</p>
+  </div>
+</div>
+
+<div id="report">
+  <div class="win">
+    <div class="winbar">🚑 Accident Report</div>
+    <div class="winbody" id="repBody"></div>
+    <button id="goBtn">GO</button>
+  </div>
+</div>
+
+<button id="fsBtn" title="Fullscreen (F)">⛶ Fullscreen</button>
+
+<aside id="side">
+  <div class="card">
+    <h2>Hand Control Camera</h2>
+    <div class="cam">
+      <div class="ph" id="ph">Starting camera… please allow camera access.</div>
+      <video id="video" playsinline muted></video>
+      <canvas id="hc"></canvas>
+    </div>
+    <div class="chips">
+      <span class="chip" id="camChip">Camera: starting…</span>
+      <span class="chip" id="handChip">Hand: –</span>
+    </div>
+    <button id="retry">Enable Camera</button>
+    <p class="small">Everything runs locally in your browser. The keyboard always works, even without the camera.</p>
+  </div>
+  <div class="card">
+    <h2>Hand Gestures</h2>
+    <table>
+      <tr><td>🖐️ Open hand</td><td>Accelerate</td></tr>
+      <tr><td>✊ Fist</td><td>Brake</td></tr>
+      <tr><td>✌️ Two fingers</td><td>Nitro boost</td></tr>
+      <tr><td>☝️ One finger</td><td>Horn</td></tr>
+      <tr><td>↔ Move hand</td><td>Steer left / right</td></tr>
+    </table>
+    <p class="small">Keep your hand in the middle of the camera view. Move it to the left or right of the center to steer, like a steering wheel.</p>
+  </div>
+</aside>
+
+<script type="module">
+import { FilesetResolver, HandLandmarker }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const $ = (id) => document.getElementById(id);
+let W = 480, H = 720, PY = H - 160, S = 1, dpr = 1;
+const ROAD = 300, HALF = 150;
+const cv = $("c"), ctx = cv.getContext("2d");
+const nc = document.createElement("canvas");
+const nctx = nc.getContext("2d");
+function resize() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  S = clamp(vh / 720, 0.7, 1.8);           // world scale so the road looks good on any screen
+  W = vw / S; H = vh / S; PY = H - 160;
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(vw * dpr); cv.height = Math.round(vh * dpr);
+  nc.width = cv.width; nc.height = cv.height;
+  ctx.setTransform(dpr * S, 0, 0, dpr * S, 0, 0);
+}
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const frac = (v) => v - Math.floor(v);
+const rnd = (a, b) => a + Math.random() * (b - a);
+resize();
+window.addEventListener("resize", resize);
+
+/* ------------------------------ Game state ------------------------------ */
+let state = "ready"; // ready | playing | paused | over
+let dist = 0, speed = 0, carX = 0, damage = 0, nitroFuel = 100;
+let overtakes = 0, crashes = 0, invuln = 0, shake = 0, flash = 0, steerVis = 0, night = false;
+let traffic = [], parts = [], spawnT = 1, braking = false, nitroOn = false;
+let crashLog = [], overAt = 0;
+const MAX_HITS = 5;
+const keys = new Set();
+
+const center = (d) => W / 2 + Math.sin(d * 0.0042) * 85 + Math.sin(d * 0.0013 + 1.3) * 55;
+const COLORS = ["#ef4444", "#f59e0b", "#22c55e", "#a855f7", "#ec4899", "#e2e8f0", "#14b8a6", "#f97316"];
+
+function resetGame() {
+  dist = 0; speed = 0; carX = 0; damage = 0; nitroFuel = 100; overtakes = 0; crashes = 0;
+  invuln = 0; shake = 0; flash = 0; traffic = []; parts = []; spawnT = 1; crashLog = [];
+}
+
+/* ------------------------------ Audio ------------------------------ */
+let ac, engOsc, engGain, muted = false;
+function initAudio() {
+  try {
+    if (ac) { ac.resume(); return; }
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    engOsc = ac.createOscillator(); engOsc.type = "sawtooth";
+    const f = ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 520;
+    engGain = ac.createGain(); engGain.gain.value = 0;
+    engOsc.connect(f); f.connect(engGain); engGain.connect(ac.destination); engOsc.start();
+  } catch (e) {}
+}
+function updateEngine() {
+  if (!ac) return;
+  const t = ac.currentTime;
+  engOsc.frequency.setTargetAtTime(48 + speed * 0.55, t, 0.05);
+  engGain.gain.setTargetAtTime(muted || state !== "playing" ? 0 : 0.045 + Math.min(0.04, speed / 9000), t, 0.1);
+}
+function crashSound() {
+  if (!ac || muted) return;
+  const len = ac.sampleRate * 0.35, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const s = ac.createBufferSource(), g = ac.createGain(); g.gain.value = 0.3;
+  s.buffer = buf; s.connect(g); g.connect(ac.destination); s.start();
+}
+let lastHorn = 0;
+function horn() {
+  const now = performance.now(); if (now - lastHorn < 450) return; lastHorn = now;
+  if (!ac || muted) return;
+  [440, 554].forEach((fr) => {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = "square"; o.frequency.value = fr; g.gain.value = 0.04;
+    o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.35);
+  });
+}
+
+/* ------------------------------ Input ------------------------------ */
+document.addEventListener("keydown", (e) => {
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
+  keys.add(e.code); initAudio();
+  if (e.code === "Enter" && (state === "ready" || state === "over")) startGame();
+  else if (e.code === "KeyP") togglePause();
+  else if (e.code === "KeyN") night = !night;
+  else if (e.code === "KeyM") muted = !muted;
+  else if (e.code === "KeyH") horn();
+  else if (e.code === "KeyF") toggleFS();
+  else if (e.code === "KeyC") { const sd = $("side"); sd.style.display = sd.style.display === "none" ? "grid" : "none"; }
+  else if (e.code === "KeyR" && state !== "ready") startGame();
+});
+document.addEventListener("keyup", (e) => keys.delete(e.code));
+window.addEventListener("blur", () => keys.clear());
+document.addEventListener("visibilitychange", () => { if (document.hidden && state === "playing") togglePause(); });
+$("startBtn").onclick = () => { initAudio(); if (state === "paused") togglePause(); else startGame(); };
+
+function goFullscreen() { try { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); } catch (e) {} }
+function toggleFS() {
+  try { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); else document.exitFullscreen(); } catch (e) {}
+}
+$("fsBtn").onclick = toggleFS;
+function startGame() { resetGame(); state = "playing"; setOverlay("none"); goFullscreen(); }
+$("goBtn").onclick = () => { initAudio(); startGame(); };
+function togglePause() {
+  if (state === "playing") { state = "paused"; setOverlay("paused"); }
+  else if (state === "paused") { state = "playing"; setOverlay("none"); }
+}
+const money = (n) => "₹" + Math.round(n).toLocaleString("en-IN");
+function buildReport() {
+  const ks = crashLog.length ? crashLog : [0];
+  const sum = (f) => ks.reduce((a, k) => a + f(k), 0);
+  const totalK = ks.reduce((a, k) => a + k, 0), maxK = Math.max(...ks);
+  const days = Math.max(1, Math.round(totalK / 55)), sess = Math.max(2, Math.round(totalK / 45));
+  const car = [
+    ["Body panels & bumper repair", sum((k) => 2500 + k * 90)],
+    ["Headlights & taillights", sum((k) => 1800 + k * 25)],
+    ["Denting & paint work", sum((k) => 1500 + k * 40)],
+    ["Windshield & glass", ks.filter((k) => k > 70).length * 6500],
+    ["Engine & suspension check", maxK > 90 ? 9500 : 3500],
+    ["Towing & workshop charges", ks.length * 1500],
+  ].filter((r) => r[1] > 0);
+  const med = [
+    ["Ambulance", ks.length * 1200],
+    ["Emergency room & doctor fees", ks.length * 1500],
+    ["X-ray / CT scan", sum((k) => (k > 45 ? 3200 : 900))],
+    ["Treatment, stitches & medicines", sum((k) => 600 + k * 55)],
+    [`Hospital stay (${days} day${days > 1 ? "s" : ""})`, days * 3500],
+    [`Physiotherapy (${sess} sessions)`, sess * 800],
+  ];
+  const cs = car.reduce((a, r) => a + r[1], 0), ms = med.reduce((a, r) => a + r[1], 0);
+  const row = (r) => `<div class="rrow"><span>${r[0]}</span><b>${money(r[1])}</b></div>`;
+  $("repBody").innerHTML = `
+    <p class="rsum">You hit other cars <b>${crashLog.length}</b> times. Distance <b>${(dist / 1000).toFixed(2)} km</b> · Overtakes <b>${overtakes}</b></p>
+    <div class="rchips">${ks.map((k, i) => `<span>Hit ${i + 1}: ${k} km/h</span>`).join("")}</div>
+    <h3>🚗 Car repair cost</h3>${car.map(row).join("")}
+    <div class="rrow sub"><span>Car repair total</span><b>${money(cs)}</b></div>
+    <h3>🧑‍⚕️ Driver treatment cost</h3>${med.map(row).join("")}
+    <div class="rrow sub"><span>Medical total</span><b>${money(ms)}</b></div>
+    <div class="grand"><span>Total cost of the accident</span><b>${money(cs + ms)}</b></div>
+    <p class="rnote">Virtual estimate based on how fast you hit. Keep your distance and slow down to save money!</p>`;
+}
+function setOverlay(mode) {
+  const o = $("overlay");
+  $("report").style.display = "none";
+  if (mode === "over") { o.style.display = "none"; buildReport(); $("report").style.display = "flex"; return; }
+  if (mode === "none") { o.style.display = "none"; return; }
+  o.style.display = "flex";
+  $("ovStats").textContent = "";
+  if (mode === "ready") {
+    $("ovTitle").textContent = "Virtual Car Drive";
+    $("ovText").textContent = "Drive a virtual car with your keyboard, or with hand gestures in front of your camera.";
+    $("startBtn").textContent = "Start Driving";
+  } else if (mode === "paused") {
+    $("ovTitle").textContent = "Paused";
+    $("ovText").textContent = "Press P or click Resume to continue.";
+    $("startBtn").textContent = "Resume";
+  }
+}
+
+/* ------------------------------ Hand control ------------------------------ */
+const video = $("video"), hc = $("hc"), hctx = hc.getContext("2d");
+let handLm = null, camOn = false;
+const hand = { present: false, last: 0, n: -1, gas: 0, brake: 0, nitro: false, horn: false, steer: 0, steerS: 0, hist: [], openSince: 0 };
+const HCONN = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+async function startCamera() {
+  $("retry").style.display = "none"; $("ph").style.display = "flex";
+  $("ph").textContent = "Starting camera… please allow camera access.";
+  $("camChip").textContent = "Camera: starting…";
+  try {
+    if (!handLm) {
+      const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+      handLm = await HandLandmarker.createFromOptions(fs, {
+        baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task" },
+        runningMode: "VIDEO", numHands: 1, minHandDetectionConfidence: 0.6, minTrackingConfidence: 0.5,
+      });
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+    video.srcObject = stream; await video.play();
+    hc.width = video.videoWidth; hc.height = video.videoHeight;
+    camOn = true; $("ph").style.display = "none"; $("camChip").textContent = "Camera: on";
+  } catch (e) {
+    camOn = false;
+    $("ph").textContent = "Camera could not start. The keyboard still works.";
+    $("camChip").textContent = "Camera: off";
+    $("retry").style.display = "inline-block";
+  }
+}
+$("retry").onclick = startCamera;
+
+function countFingers(lm, w, h) {
+  const d = (a, b) => Math.hypot((a.x - b.x) * w, (a.y - b.y) * h);
+  let c = 0;
+  [[8, 6], [12, 10], [16, 14], [20, 18]].forEach(([t, p]) => { if (d(lm[t], lm[0]) > d(lm[p], lm[0]) * 1.05) c++; });
+  if (d(lm[4], lm[17]) > d(lm[3], lm[17]) * 1.05 && d(lm[4], lm[5]) > d(lm[3], lm[5])) c++;
+  return c;
+}
+let lastVT = -1;
+function readHand(t) {
+  if (!camOn || !handLm || video.readyState < 2 || video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  const res = handLm.detectForVideo(video, t);
+  hctx.clearRect(0, 0, hc.width, hc.height);
+  if (res.landmarks && res.landmarks.length) {
+    const lm = res.landmarks[0], w = hc.width, h = hc.height;
+    hctx.strokeStyle = "#38bdf8"; hctx.lineWidth = 3;
+    HCONN.forEach(([a, b]) => { hctx.beginPath(); hctx.moveTo(lm[a].x * w, lm[a].y * h); hctx.lineTo(lm[b].x * w, lm[b].y * h); hctx.stroke(); });
+    hctx.fillStyle = "#fbbf24"; lm.forEach((p) => { hctx.beginPath(); hctx.arc(p.x * w, p.y * h, 4, 0, 7); hctx.fill(); });
+
+    hand.hist.push(countFingers(lm, w, h)); if (hand.hist.length > 5) hand.hist.shift();
+    const cnt = {}; hand.hist.forEach((v) => cnt[v] = (cnt[v] || 0) + 1);
+    hand.n = parseInt(Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0], 10);
+    const mx = 1 - lm[9].x;                       // mirrored, like a mirror view
+    let s = clamp((mx - 0.5) / 0.22, -1, 1);
+    s = Math.abs(s) < 0.12 ? 0 : Math.sign(s) * (Math.abs(s) - 0.12) / 0.88;
+    hand.steer = s; hand.present = true; hand.last = t;
+    hand.gas = hand.n === 5 ? 1 : 0; hand.brake = hand.n === 0 ? 1 : 0;
+    hand.nitro = hand.n === 2; hand.horn = hand.n === 1;
+    const label = hand.n === 5 ? "Open → GAS" : hand.n === 0 ? "Fist → BRAKE" : hand.n === 2 ? "Two → NITRO" : hand.n === 1 ? "One → HORN" : "Coasting";
+    $("handChip").textContent = "Hand: " + label;
+    if (hand.horn && state === "playing") horn();
+    if ((state === "ready" || (state === "over" && t - overAt > 2500)) && hand.n === 5) {
+      if (!hand.openSince) hand.openSince = t; else if (t - hand.openSince > 1000) { hand.openSince = 0; startGame(); }
+    } else hand.openSince = 0;
+  } else if (t - hand.last > 400 && hand.present) {
+    hand.present = false; hand.gas = hand.brake = 0; hand.nitro = false; hand.steer = 0; hand.hist = []; hand.openSince = 0;
+    $("handChip").textContent = "Hand: –";
+  }
+}
+
+function inputs() {
+  let gas = keys.has("ArrowUp") || keys.has("KeyW") ? 1 : 0;
+  let brake = keys.has("ArrowDown") || keys.has("KeyS") ? 1 : 0;
+  let steer = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
+  let nitro = keys.has("Space") || keys.has("ShiftLeft") || keys.has("ShiftRight");
+  hand.steerS += (hand.steer - hand.steerS) * 0.25;
+  if (hand.present) {
+    gas = Math.max(gas, hand.gas); brake = Math.max(brake, hand.brake); nitro = nitro || hand.nitro;
+    if (steer === 0) steer = hand.steerS;
+  }
+  return { gas, brake, steer, nitro };
+}
+
+/* ------------------------------ Update ------------------------------ */
+function spark(x, y, color, n, spd) {
+  for (let i = 0; i < n; i++) parts.push({ x, y, vx: rnd(-spd, spd), vy: rnd(-spd, spd), life: rnd(0.3, 0.8), max: 0.8, color, r: rnd(2, 4) });
+}
+function update(dt) {
+  const inp = inputs();
+  const off = Math.abs(carX) > HALF - 26;
+  const wantNitro = inp.nitro && nitroFuel > 0 && inp.gas > 0;
+  nitroOn = wantNitro;
+  let maxSp = off ? 150 : 380, acc = 240;
+  if (wantNitro) { maxSp = off ? 220 : 520; acc = 430; nitroFuel = Math.max(0, nitroFuel - 32 * dt); }
+  else nitroFuel = Math.min(100, nitroFuel + 7 * dt);
+  braking = inp.brake > 0;
+
+  if (inp.gas) speed += acc * dt * inp.gas;
+  if (inp.brake) speed -= 560 * dt * inp.brake;
+  if (!inp.gas && !inp.brake) speed -= 70 * dt;
+  if (off) speed -= 200 * dt;
+  if (speed > maxSp) speed -= 320 * dt;
+  speed = Math.max(0, speed);
+
+  const slope = (center(dist + 60) - center(dist)) / 60;
+  carX += inp.steer * 250 * clamp(speed / 90, 0, 1) * dt - slope * speed * 0.55 * dt;
+  if (Math.abs(carX) > HALF + 55) { carX = Math.sign(carX) * (HALF + 55); speed *= 0.97; }
+  steerVis += (inp.steer - steerVis) * 0.2;
+  dist += speed * dt;
+
+  invuln = Math.max(0, invuln - dt); shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt * 2);
+
+  // traffic
+  spawnT -= dt * clamp(speed / 200, 0.4, 2);
+  if (spawnT <= 0) {
+    spawnT = rnd(0.6, 1.3);
+    const behind = Math.random() < 0.22;
+    const lane = [-100, 0, 100][Math.floor(Math.random() * 3)];
+    const d = behind ? dist + PY - H - 140 : dist + PY + 140;
+    if (!traffic.some((t) => Math.abs(t.off - lane) < 10 && Math.abs(t.d - d) < 200)) {
+      traffic.push({ off: lane, d, speed: behind ? speed + rnd(70, 130) : rnd(110, 270), color: COLORS[Math.floor(Math.random() * COLORS.length)], counted: false, hit: 0 });
+    }
+  }
+  const px = center(dist) + carX;
+  for (const t of traffic) {
+    t.d += t.speed * dt; t.hit = Math.max(0, t.hit - dt);
+    const sy = PY - (t.d - dist), sx = center(t.d) + t.off;
+    if (!t.counted && sy > PY + 90 && t.speed < speed) { t.counted = true; overtakes++; }
+    if (invuln <= 0 && Math.abs(sx - px) < 40 && Math.abs(sy - PY) < 80) {
+      const rel = Math.max(30, Math.abs(speed - t.speed));
+      crashLog.push(Math.round(rel * 0.65));
+      crashes++; invuln = 1.1; shake = 0.45; flash = 0.6; t.hit = 0.6;
+      speed = Math.min(speed, t.speed * 0.6);
+      carX += (px >= sx ? 1 : -1) * 22;
+      spark((px + sx) / 2, PY - (sy - PY) * 0, "#fbbf24", 18, 160); crashSound();
+      damage = Math.min(100, crashes * (100 / MAX_HITS));
+      if (crashes >= MAX_HITS) { state = "over"; overAt = performance.now(); speed = 0; setOverlay("over"); }
+    }
+  }
+  traffic = traffic.filter((t) => { const sy = PY - (t.d - dist); return sy > -260 && sy < H + 260; });
+
+  // particles
+  if (nitroOn) spark(px + rnd(-8, 8), PY + 50, "#fb923c", 2, 40);
+  if (damage > 55 && Math.random() < 0.4) parts.push({ x: px + rnd(-10, 10), y: PY - 30, vx: rnd(-10, 10), vy: rnd(30, 60), life: 0.8, max: 0.8, color: "rgba(148,163,184,.7)", r: rnd(5, 9) });
+  parts.forEach((p) => { p.x += p.vx * dt; p.y += (p.vy + speed * 0.4) * dt; p.life -= dt; });
+  parts = parts.filter((p) => p.life > 0);
+}
+
+/* ------------------------------ Drawing ------------------------------ */
+function rr(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function drawCar(x, y, color, rot, brake, hit) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot + (hit ? Math.sin(performance.now() / 30) * 0.12 : 0));
+  ctx.fillStyle = "rgba(0,0,0,.30)"; rr(ctx, -20, -38, 48, 90, 12); ctx.fill();
+  ctx.fillStyle = "#0b0f19";
+  [[-27, -30], [19, -30], [-27, 14], [19, 14]].forEach(([wx, wy]) => { rr(ctx, wx, wy, 8, 22, 3); ctx.fill(); });
+  ctx.fillStyle = color; rr(ctx, -22, -44, 44, 88, 13); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,.18)"; rr(ctx, -22, -44, 14, 88, 10); ctx.fill();
+  ctx.fillStyle = "#0f172a"; rr(ctx, -16, -22, 32, 16, 4); ctx.fill();
+  rr(ctx, -16, 16, 32, 12, 4); ctx.fill();
+  ctx.fillStyle = color; rr(ctx, -14, -4, 28, 20, 4); ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,.18)"; rr(ctx, -14, -4, 28, 20, 4); ctx.fill();
+  ctx.fillStyle = "#fef9c3"; rr(ctx, -19, -45, 9, 5, 2); ctx.fill(); rr(ctx, 10, -45, 9, 5, 2); ctx.fill();
+  ctx.fillStyle = brake ? "#ff2020" : "#991b1b"; rr(ctx, -19, 40, 9, 4, 2); ctx.fill(); rr(ctx, 10, 40, 9, 4, 2); ctx.fill();
+  ctx.restore();
+}
+function drawTree(x, y, r) {
+  ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.arc(x + 6, y + 6, r, 0, 7); ctx.fill();
+  ctx.fillStyle = "#14532d"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  ctx.fillStyle = "#16a34a"; ctx.beginPath(); ctx.arc(x - r * 0.2, y - r * 0.2, r * 0.65, 0, 7); ctx.fill();
+}
+
+function render() {
+  ctx.save();
+  if (shake > 0) ctx.translate(rnd(-1, 1) * shake * 14, rnd(-1, 1) * shake * 14);
+
+  // grass bands
+  ctx.fillStyle = "#2f7d32"; ctx.fillRect(-20, -20, W + 40, H + 40);
+  ctx.fillStyle = "#2a7230";
+  for (let i = Math.floor((dist + PY - H) / 80) - 1; i <= Math.ceil((dist + PY) / 80) + 1; i++) {
+    if (i % 2) ctx.fillRect(-20, PY - ((i + 1) * 80 - dist), W + 40, 80);
+  }
+  // road rows
+  for (let y = -4; y < H + 4; y += 2) {
+    const d = dist + PY - y, c = center(d), band = Math.floor(d / 60) % 2 === 0;
+    ctx.fillStyle = band ? "#3b4452" : "#353d4a"; ctx.fillRect(c - HALF, y, ROAD, 3);
+    ctx.fillStyle = Math.floor(d / 30) % 2 === 0 ? "#ef4444" : "#f8fafc";
+    ctx.fillRect(c - HALF - 10, y, 10, 3); ctx.fillRect(c + HALF, y, 10, 3);
+    ctx.fillStyle = "#e2e8f0"; ctx.fillRect(c - HALF + 4, y, 3, 3); ctx.fillRect(c + HALF - 7, y, 3, 3);
+    if (Math.floor(d / 50) % 2 === 0) { ctx.fillStyle = "#fde68a"; ctx.fillRect(c - 52, y, 4, 3); ctx.fillRect(c + 48, y, 4, 3); }
+  }
+  // trees
+  for (let i = Math.floor((dist + PY - H) / 100) - 1; i <= Math.ceil((dist + PY) / 100) + 1; i++) {
+    const d = i * 100, y = PY - (d - dist), c = center(d);
+    const h1 = frac(Math.sin(i * 12.9898) * 43758.5453), h2 = frac(Math.sin(i * 78.233) * 12345.6789);
+    const h3 = frac(Math.sin(i * 39.346) * 83758.5453), h4 = frac(Math.sin(i * 91.17) * 23421.6789);
+    drawTree(c - HALF - 40 - h1 * 110, y, 16 + h1 * 10);
+    drawTree(c + HALF + 40 + h2 * 110, y + 40, 16 + h2 * 10);
+    const lx = c - HALF - 190 - h3 * 260, rx = c + HALF + 190 + h4 * 260;
+    if (lx > -40) drawTree(lx, y + 20, 14 + h3 * 12);
+    if (rx < W + 40) drawTree(rx, y + 60, 14 + h4 * 12);
+  }
+
+  // cars
+  const px = center(dist) + carX;
+  const list = traffic.slice().sort((a, b) => b.d - a.d);
+  for (const t of list) drawCar(center(t.d) + t.off, PY - (t.d - dist), t.color, 0, false, t.hit > 0);
+  if (nitroOn) {
+    const g = ctx.createLinearGradient(0, PY + 44, 0, PY + 100);
+    g.addColorStop(0, "rgba(251,146,60,.95)"); g.addColorStop(1, "rgba(251,146,60,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(px - 12, PY + 44); ctx.lineTo(px, PY + 44 + rnd(60, 90)); ctx.lineTo(px + 12, PY + 44); ctx.fill();
+  }
+  if (!(invuln > 0 && Math.floor(invuln * 12) % 2 === 0)) drawCar(px, PY, "#38bdf8", steerVis * 0.14, braking, false);
+
+  // particles
+  parts.forEach((p) => { ctx.globalAlpha = clamp(p.life / p.max, 0, 1); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); });
+  ctx.globalAlpha = 1;
+
+  // night
+  if (night) {
+    nctx.setTransform(dpr * S, 0, 0, dpr * S, 0, 0);
+    nctx.globalCompositeOperation = "source-over"; nctx.clearRect(0, 0, W, H);
+    nctx.fillStyle = "rgba(2,6,23,.80)"; nctx.fillRect(0, 0, W, H);
+    nctx.globalCompositeOperation = "destination-out";
+    const g = nctx.createLinearGradient(0, PY - 40, 0, PY - 340);
+    g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(1, "rgba(0,0,0,0)");
+    nctx.fillStyle = g; nctx.beginPath();
+    nctx.moveTo(px - 24, PY - 40); nctx.lineTo(px - 120, PY - 340); nctx.lineTo(px + 120, PY - 340); nctx.lineTo(px + 24, PY - 40); nctx.closePath(); nctx.fill();
+    const g2 = nctx.createRadialGradient(px, PY, 10, px, PY, 90);
+    g2.addColorStop(0, "rgba(0,0,0,.9)"); g2.addColorStop(1, "rgba(0,0,0,0)");
+    nctx.fillStyle = g2; nctx.fillRect(px - 100, PY - 100, 200, 200);
+    ctx.drawImage(nc, 0, 0, W, H);
+    ctx.fillStyle = "rgba(255,40,40,.55)";
+    for (const t of traffic) {
+      const x = center(t.d) + t.off, y = PY - (t.d - dist) + 42;
+      ctx.beginPath(); ctx.arc(x - 14, y, 6, 0, 7); ctx.arc(x + 14, y, 6, 0, 7); ctx.fill();
+    }
+  }
+  if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash * 0.5})`; ctx.fillRect(0, 0, W, H); }
+  ctx.restore();
+  drawHUD();
+}
+
+function bar(x, y, w, h, v, color, label) {
+  ctx.fillStyle = "rgba(0,0,0,.55)"; rr(ctx, x, y, w, h, 5); ctx.fill();
+  ctx.fillStyle = color; rr(ctx, x + 2, y + 2, Math.max(0, (w - 4) * v / 100), h - 4, 4); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.font = "bold 10px Arial"; ctx.textAlign = "left"; ctx.fillText(label, x + 6, y + h - 5);
+}
+function drawHUD() {
+  const kmh = Math.round(speed * 0.65);
+  ctx.fillStyle = "rgba(0,0,0,.45)"; rr(ctx, 10, 10, 150, 78, 12); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.textAlign = "left"; ctx.font = "bold 40px Arial"; ctx.fillText(kmh, 20, 52);
+  ctx.font = "bold 13px Arial"; ctx.fillStyle = "#94a3b8"; ctx.fillText("km/h", 100, 52);
+  const gear = speed < 5 ? "N" : Math.min(6, 1 + Math.floor(speed / 70));
+  ctx.fillStyle = "#fde68a"; ctx.fillText("GEAR " + gear + (night ? "  🌙" : ""), 20, 76);
+
+  ctx.fillStyle = "rgba(0,0,0,.45)"; rr(ctx, W - 170, 10, 160, 84, 12); ctx.fill();
+  ctx.textAlign = "right"; ctx.fillStyle = "#fff"; ctx.font = "bold 15px Arial";
+  ctx.fillText("DIST  " + (dist / 1000).toFixed(2) + " km", W - 20, 33);
+  ctx.fillText("OVERTAKES  " + overtakes, W - 20, 56);
+  ctx.fillStyle = crashes >= 3 ? "#f87171" : "#fff"; ctx.fillText("HITS  " + crashes + " / " + MAX_HITS, W - 20, 79);
+
+  bar(10, H - 56, 140, 18, nitroFuel, "#38bdf8", "NITRO");
+  bar(10, H - 32, 140, 18, 100 - damage, damage > 60 ? "#ef4444" : "#22c55e", "HEALTH");
+
+  const wx = W - 84, wy = H - 84, R = 62;
+  ctx.fillStyle = "rgba(0,0,0,.40)"; ctx.beginPath(); ctx.arc(wx, wy, R + 12, 0, 7); ctx.fill();
+  ctx.save(); ctx.translate(wx, wy); ctx.rotate(steerVis * 1.1);
+  ctx.strokeStyle = "rgba(255,255,255,.92)"; ctx.lineWidth = 11; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.stroke();
+  ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(-R, 0); ctx.lineTo(R, 0); ctx.moveTo(0, 0); ctx.lineTo(0, R); ctx.stroke();
+  ctx.fillStyle = "#38bdf8"; ctx.beginPath(); ctx.arc(0, -R, 8, 0, 7); ctx.fill();
+  ctx.fillStyle = "#e2e8f0"; ctx.beginPath(); ctx.arc(0, 0, 11, 0, 7); ctx.fill();
+  ctx.restore();
+
+  if (Math.abs(carX) > HALF - 26 && state === "playing") {
+    ctx.textAlign = "center"; ctx.fillStyle = "#fbbf24"; ctx.font = "bold 16px Arial"; ctx.fillText("OFF ROAD!", W / 2, 120);
+  }
+}
+
+/* ------------------------------ Main loop ------------------------------ */
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000); last = t;
+  readHand(t);
+  if (state === "playing") update(dt);
+  else if (state === "ready") { dist += 90 * dt; }
+  updateEngine();
+  render();
+  requestAnimationFrame(frame);
+}
+setOverlay("ready");
+requestAnimationFrame(frame);
+startCamera(); // camera opens automatically
+</script>
+</body>
+</html>
